@@ -1,0 +1,35 @@
+# Пайтон
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+.env
+
+# Файлы IDE / Редактора
+.vscode/
+.idea/
+.obsidian/ # Добавлено на основе list_dir
+
+# Файлы ОС
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+# Сгенерированные файлы / Результаты анализа
+analysis_results.csv
+signal_report.html
+temp/ # Добавлена папка temp
+
+# Другое
+*.bak
+*.tmp

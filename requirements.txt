@@ -1,0 +1,9 @@
+pandas
+textstat
+sentence-transformers
+scikit-learn
+transformers
+torch
+plotly
+openai
+python-dotenv

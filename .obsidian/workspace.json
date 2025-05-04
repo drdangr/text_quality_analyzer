@@ -1,0 +1,205 @@
+{
+  "main": {
+    "id": "dc776e8732ad5627",
+    "type": "split",
+    "children": [
+      {
+        "id": "8ac7c36400d52796",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2a3f938e94f1dc3b",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/Text Analysis Prototype.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Text Analysis Prototype"
+            }
+          },
+          {
+            "id": "9b136ac78525d532",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/Text Analysis Prototype.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Text Analysis Prototype"
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b7cdb19d88c5a5a3",
+    "type": "split",
+    "children": [
+      {
+        "id": "5e4e342d527401a4",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "371b187ccf43e933",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Файловый менеджер"
+            }
+          },
+          {
+            "id": "23c32313627a66a1",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Поиск"
+            }
+          },
+          {
+            "id": "4e331025f5e31dcd",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Закладки"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "b54cc4641d202b44",
+    "type": "split",
+    "children": [
+      {
+        "id": "da88d16eb04391a8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "806b2fbb43aaf3c0",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/Text Analysis Prototype.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Обратные ссылки для Text Analysis Prototype"
+            }
+          },
+          {
+            "id": "01d72e2af1aa4fe4",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/Text Analysis Prototype.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Исходящие ссылки из Text Analysis Prototype"
+            }
+          },
+          {
+            "id": "4c7c737ec60f49f4",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Теги"
+            }
+          },
+          {
+            "id": "82e9ec479cf40710",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/Text Analysis Prototype.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Структура Text Analysis Prototype"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Меню быстрого перехода": false,
+      "graph:Граф": false,
+      "canvas:Создать новый холст": false,
+      "daily-notes:Сегодняшняя заметка": false,
+      "templates:Вставить шаблон": false,
+      "command-palette:Открыть палитру команд": false
+    }
+  },
+  "active": "9b136ac78525d532",
+  "lastOpenFiles": [
+    "README.md",
+    "docs/Text Analysis Prototype.md",
+    "utils/__pycache__/openai_client.cpython-312.pyc",
+    "utils/openai_client.py",
+    "analysis.log",
+    "utils/__pycache__/text_processing.cpython-312.pyc",
+    "utils/__pycache__/file_operations.cpython-312.pyc",
+    "utils/__pycache__",
+    "utils/text_processing.py",
+    "utils/file_operations.py",
+    "utils",
+    "signal_report.html",
+    "temp/output.png",
+    "data/sample_text.md",
+    "temp/parsed_paragraphs.md",
+    "docs/Readability Module.md"
+  ]
+}
