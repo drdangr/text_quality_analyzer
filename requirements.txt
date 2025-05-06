@@ -1,9 +1,12 @@
 pandas
-textstat
-sentence-transformers
-scikit-learn
-transformers
-torch
-plotly
-openai
+numpy
 python-dotenv
+openai
+# tiktoken # Раскомментируем и добавим protobuf ниже
+tiktoken
+protobuf # Добавлено для xlm-roberta-large-xnli
+scikit-learn
+# Flask # Убрано
+# Werkzeug # Убрано, зависимость Flask
+matplotlib
+transformers[torch] # Добавим [torch] для гарантии установки нужных зависимостей

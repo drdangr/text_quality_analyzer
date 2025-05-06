@@ -13,6 +13,15 @@ def load_text(file_path: str) -> str | None:
         logging.error(f"Ошибка чтения файла {file_path}: {e}")
         return None
 
+# Новая функция для загрузки из строки
+def load_text_from_content(content: str) -> str | None:
+    """Просто возвращает переданный контент, если он не пустой."""
+    if isinstance(content, str) and content.strip():
+        return content
+    else:
+        logging.error("Получен пустой или некорректный контент для анализа.")
+        return None
+
 def save_results_to_csv(df: pd.DataFrame, file_path: str):
     """Сохраняет DataFrame в CSV файл."""
     try:

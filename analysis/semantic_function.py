@@ -1,436 +1,601 @@
-# Semantic_function module placeholder
+"""
+Модуль анализа семантической функции текста.
 
-from transformers import pipeline
-import torch # Убедимся, что torch импортирован для проверки доступности GPU
-import config # Импортируем config для доступа к теме (хотя лучше передавать аргументом)
-import os
+Этот модуль предоставляет инструменты для анализа семантической функции параграфов текста,
+следуя спецификации из docs/Text Analysis Prototype.md.
+
+Доступны два метода анализа:
+1. API-анализ с использованием OpenAI API (основной метод).
+2. Локальный анализ с использованием предзагруженной NLI-модели (резервный).
+
+Основные функции:
+- analyze_semantic_function_local: анализ одного параграфа локальной моделью.
+- analyze_semantic_function_local_batch: пакетный анализ локальной моделью.
+- analyze_semantic_function_api_batch: пакетный анализ через OpenAI API.
+- analyze_semantic_function_batch: комбинированный анализ (оркестратор).
+"""
+
+from typing import Dict, List, Any, Optional, Union
 import logging
-from dotenv import load_dotenv
-import re # Добавляем re для парсера
-from typing import List, Dict, Tuple # Добавляем типизацию
-import pandas as pd # Добавляем pandas для prepare_numbered_text_block
+import re
+import torch
+import pandas as pd
+import hashlib
 
+# Подключаем Transformers для локальной модели
 try:
-    import openai # Оставляем импорт openai
+    from transformers import pipeline
 except ImportError:
-    # Логирование ошибки теперь в utils/openai_client.py
-    # logging.error("Библиотека openai не установлена...")
-    openai = None
+    logging.error("Библиотека transformers не установлена. Локальная модель будет недоступна.")
+    pipeline = None
 
-# 1. Словарь меток и гипотез
-LABEL_SYNONYMS = {
-    # Метки, ЗАВИСЯЩИЕ от темы
-    "раскрытие темы": [
-        "объясняет суть темы",
-        "развивает тему",
-        "непосредственно относится к теме",
-        "конкретизирует тему",
-        "продолжает изложение темы"
-    ],
-    "пояснение на примере": [
-        "разъясняет тему через пример",
-        "иллюстрирует тему",
-        "объясняет идею с помощью аналога",
-        "даёт пример по теме",
-        "конкретизирует тему бытовой ситуацией"
-    ],
-    "лирическое отступление": [
-        "это содержательное отступление от темы",
-        "философское или культурное отступление",
-        "не о теме напрямую, но создаёт глубину",
-        "содержит мысль, не связанную с темой напрямую",
-        "расширяет контекст, отступая от основной линии"
-    ],
-    # Метки, НЕ ЗАВИСЯЩИЕ от темы
-    "метафора": [
-        "это метафора",
-        "это образное выражение",
-        "это переносный смысл",
-        "это поэтическое сравнение",
-        "это аналогия"
-    ],
-    "юмор": [
-        "это юмор",
-        "это ирония",
-        "это шутка",
-        "это сарказм",
-        "это комическая вставка"
-    ]
-}
-
-# 2. Модель и ДВА шаблона
-MODEL_NAME = "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
-TEMPLATE_WITH_TOPIC = "Этот фрагмент касается темы '{topic}' и {{}}."
-TEMPLATE_NEUTRAL = "Этот фрагмент является {}."
-
-# 3. Загружаем модель
-classifier = None
+# Подключаем OpenAI для API
 try:
-    device_id = 0 if torch.cuda.is_available() else -1
-    classifier = pipeline(
-        "zero-shot-classification",
-        model=MODEL_NAME,
-        device=device_id
-    )
-    print(f"Zero-shot classifier '{MODEL_NAME}' loaded successfully on device: {'GPU' if device_id == 0 else 'CPU'}.")
-except Exception as e:
-    print(f"Error loading zero-shot classification pipeline '{MODEL_NAME}': {e}")
-    print("Semantic function analysis will not be available.")
+    from openai import OpenAI, APIConnectionError, RateLimitError, APIStatusError
+except ImportError:
+    logging.warning("Библиотека openai не установлена. API анализ будет недоступен.")
+    OpenAI = None # type: ignore
+    APIConnectionError = Exception # type: ignore
+    RateLimitError = Exception # type: ignore
+    APIStatusError = Exception # type: ignore
 
-# 4. Функция принимает topic_prompt
-def analyze_semantic_function(paragraph_text, topic_prompt):
-    """Анализирует семантическую функцию параграфа, используя разные шаблоны гипотез
-    для разных типов меток."""
-    if classifier is None:
-        print("Zero-shot classifier not loaded. Skipping semantic analysis.")
-        return {"semantic_function": "error", "probabilities": {}}
+# -----------------------------------------------------------------------------
+# Константы и настройки (согласно документации)
+# -----------------------------------------------------------------------------
 
-    if not paragraph_text:
-        return {"semantic_function": "empty", "probabilities": {}}
+# -- Локальная модель (Fallback) --
+# Пробуем альтернативную base модель от MoritzLaurer
+# MODEL_NAME_LOCAL = "cointegrated/rubert-base-cased-nli-threeway" # Русскоязычная base NLI модель
+MODEL_NAME_LOCAL = "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7" # Альтернативная мультиязычная base модель
+LOCAL_SCORE_THRESHOLD = 0.5 # Порог для включения метки в топ-3
+LOCAL_TOP_N = 4             # Количество лучших меток для вывода
 
-    # Словарь для хранения максимальных score для каждой ОСНОВНОЙ метки
-    aggregated_scores = {}
-
-    try:
-        # 5. Итерируем по основным меткам
-        for main_label, synonym_hypotheses in LABEL_SYNONYMS.items():
-
-            # 6. Выбираем правильный шаблон и форматируем его
-            current_template = ""
-            if main_label in ["раскрытие темы", "пояснение на примере", "лирическое отступление"]:
-                if not topic_prompt:
-                    print(f"Warning: Topic prompt is empty for topic-dependent label '{main_label}'. Using neutral template.")
-                    current_template = TEMPLATE_NEUTRAL
-                else:
-                    # Используем f-string для подстановки темы, экранируя фигурные скобки для format пайплайна
-                    current_template = TEMPLATE_WITH_TOPIC.format(topic=topic_prompt)
-            else: # Для метафоры и юмора
-                current_template = TEMPLATE_NEUTRAL
-
-            # 7. Выполняем классификацию для текущей основной метки и ее синонимов
-            results = classifier(
-                paragraph_text,
-                synonym_hypotheses, # Передаем синонимы ТОЛЬКО для этой метки
-                hypothesis_template=current_template, # Передаем СООТВЕТСТВУЮЩИЙ шаблон
-                multi_label=True
-            )
-
-            # 8. Находим максимальный score среди синонимов этой метки
-            max_score_for_label = 0.0
-            if results and 'scores' in results:
-                 max_score_for_label = max(results['scores'])
-
-            aggregated_scores[main_label] = round(max_score_for_label, 3)
-
-        # 9. Находим основную метку с наивысшим агрегированным score
-        if not aggregated_scores:
-            top_main_label = "error"
-        else:
-            top_main_label = max(aggregated_scores, key=aggregated_scores.get)
-
-        print(f"    Семантическая функция: {top_main_label} (max_score: {aggregated_scores.get(top_main_label, 0.0):.3f})")
-
-        return {
-            "semantic_function": top_main_label,
-            "probabilities": aggregated_scores
-        }
-
-    except Exception as e:
-        print(f"Error during semantic function analysis for paragraph '{paragraph_text[:50]}...': {e}")
-        return {"semantic_function": "error", "probabilities": {}}
-
-# --- Конфигурация для Локального Fallback Метода ---
+# Словарь семантических меток и их синонимов для локальной модели
+# Плейсхолдер <ТЕМА> будет заменен на реальную тему
+# уберем несколько гипотез "развивает тему <ТЕМА>","конкретизирует тему <ТЕМА>",
 LABEL_SYNONYMS_LOCAL = {
-    # (Словарь с 5 метками и их синонимами, как в предыдущей версии)
-    "раскрытие темы": [
-        "объясняет суть темы", "развивает тему", "непосредственно относится к теме",
-        "конкретизирует тему", "продолжает изложение темы"
-    ],
-    "пояснение на примере": [
-        "разъясняет тему через пример", "иллюстрирует тему", "объясняет идею с помощью аналога",
-        "даёт пример по теме", "конкретизирует тему бытовой ситуацией"
-    ],
-    "метафора": [
-        "это метафора", "это образное выражение", "это переносный смысл",
-        "это поэтическое сравнение", "это аналогия"
-    ],
-    "юмор": [
-        "это юмор", "это ирония", "это шутка",
-        "это сарказм", "это комическая вставка"
-    ],
-    "лирическое отступление": [
-        "это содержательное отступление от темы", "философское или культурное отступление", "не о теме напрямую, но создаёт глубину",
-        "содержит мысль, не связанную с темой напрямую", "расширяет контекст, отступая от основной линии"
-    ]
+  "раскрытие темы": [
+    "объясняет суть темы <ТЕМА>",
+    "непосредственно относится к теме <ТЕМА>",
+    "продолжает изложение темы <ТЕМА>"
+  ],
+  "пояснение на примере": [
+    "разъясняет тему <ТЕМА> через пример",
+    "иллюстрирует тему <ТЕМА>",
+    "объясняет идею <ТЕМА> с помощью аналога",
+    "даёт пример по теме <ТЕМА>",
+    "конкретизирует тему <ТЕМА> бытовой ситуацией"
+  ],
+  "метафора": [
+    "этот абзац может быть метафорой <ТЕМА>", # Примечание: Документация указывает этот синоним как зависящий от темы, хотя сама метка "метафора" вроде бы нет. Оставляем как в док-ции.
+    "это образное выражение относительно <ТЕМА>",
+    "этот абзац имеет переносный смысл по отношению к <ТЕМА>",
+    "этот абзац содержит поэтическое сравнение <ТЕМА>",
+    "это аналогия <ТЕМА>"
+  ],
+  "юмор": [
+    "это юмор или шутка или анекдот",
+    "этот текст написан в юмористическом тоне",
+    "здесь используется ирония или сарказм",
+    "автор пытается пошутить",
+    "это высказывание имеет комический эффект"
+  ],
+  "лирическое отступление": [
+    "это содержательное отступление от темы <ТЕМА>",
+    "философское или культурное отступление от темы <ТЕМА>",
+    "не о теме <ТЕМА> напрямую, но создаёт глубину",
+    "содержит мысль, не связанную с темой <ТЕМА> напрямую",
+    "расширяет контекст, отступая от основной линии <ТЕМА>"
+  ]
 }
-MODEL_NAME_LOCAL = "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
-TEMPLATE_WITH_TOPIC_LOCAL = "Этот фрагмент касается темы '{topic}' и {{}}."
-TEMPLATE_NEUTRAL_LOCAL = "Этот фрагмент является {}."
 
-# Загружаем локальную модель для fallback
+# Плейсхолдер темы для локального анализа
+LOCAL_TOPIC_PLACEHOLDER = "<ТЕМА>"
+
+# -- API Метод (Основной) --
+API_MODEL_NAME = "gpt-4o" # Предпочтительно, но можно заменить на gpt-4-turbo, если 4o недоступен
+API_TEMPERATURE = 0.3
+API_MAX_TOKENS_PER_REQUEST = 4000 # Устанавливаем разумный лимит для всего ответа API (с запасом)
+API_TOKENS_PER_PARAGRAPH_ESTIMATE = 40 # Грубая оценка для расчета общего лимита
+
+API_PARAMS = {
+    "model": API_MODEL_NAME,
+    "temperature": API_TEMPERATURE,
+    "top_p": 1.0,
+    # "max_tokens": 1500, # max_tokens лучше рассчитывать динамически или задать с большим запасом
+    "n": 1,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0
+}
+
+# Метки для API (10 штук согласно документации)
+API_LABELS = [
+    "раскрытие темы",
+    "пояснение на примере",
+    "лирическое отступление",
+    "ключевой тезис",
+    "шум",
+    "метафора или аналогия",
+    "юмор или ирония или сарказм",
+    "связующий переход",
+    "смена темы",
+    "противопоставление или контраст"
+]
+
+# Метки API, требующие подстановки темы (<ТЕМА>)
+API_TOPIC_LABELS = [
+    "раскрытие темы",
+    "пояснение на примере",
+    "лирическое отступление",
+    "ключевой тезис",
+    "шум"
+]
+API_TOPIC_PLACEHOLDER = "<ТЕМА>" # Плейсхолдер в промпте API
+
+# -----------------------------------------------------------------------------
+# Глобальные переменные и кеши
+# -----------------------------------------------------------------------------
+
 local_classifier = None
-try:
-    if 'pipeline' in globals() and callable(pipeline):
+GLOBAL_RESULT_CACHE = {} # Кеш для локального анализа {cache_key: result_string}
+
+# -----------------------------------------------------------------------------
+# Загрузка моделей и классификаторов
+# -----------------------------------------------------------------------------
+
+def load_local_classifier() -> None:
+    """Загружает локальный zero-shot классификатор."""
+    global local_classifier
+    
+    if local_classifier is not None:
+        logging.debug("Локальный классификатор уже загружен.")
+        return
+        
+    if pipeline is None:
+        logging.error("Библиотека transformers (pipeline) не доступна. Локальный классификатор не будет загружен.")
+        return
+        
+    try:
+        # Проверяем доступность GPU
         device_id = 0 if torch.cuda.is_available() else -1
         device_name = 'GPU' if device_id == 0 else 'CPU'
-        print(f"Загрузка локального классификатора '{MODEL_NAME_LOCAL}' на {device_name}...")
+        
+        logging.info(f"Загрузка локального классификатора '{MODEL_NAME_LOCAL}' на {device_name}...")
+        
         local_classifier = pipeline(
             "zero-shot-classification",
             model=MODEL_NAME_LOCAL,
             device=device_id
         )
-        logging.info(f"Локальный классификатор '{MODEL_NAME_LOCAL}' загружен на {device_name}.")
-    else:
-        logging.warning("Не удалось загрузить локальный классификатор: функция 'pipeline' не найдена.")
-except Exception as e:
-    logging.error(f"Ошибка загрузки локального классификатора '{MODEL_NAME_LOCAL}': {e}")
-# ----------------------------------------------------
+        
+        logging.info(f"Локальный классификатор '{MODEL_NAME_LOCAL}' успешно загружен на {device_name}.")
+    except Exception as e:
+        logging.error(f"Ошибка загрузки локального классификатора '{MODEL_NAME_LOCAL}': {e}", exc_info=True)
+        local_classifier = None # Убедимся, что он None в случае ошибки
 
-# --- Конфигурация для API Метода ---
-API_MODEL_NAME = "gpt-4o" # или gpt-4-turbo
-API_TEMPERATURE = 0.3
-API_LABELS = list(LABEL_SYNONYMS_LOCAL.keys()) # Используем те же основные метки
-API_LABEL_DESCRIPTIONS = {
-    # Метки, ЗАВИСЯЩИЕ от темы
-    "раскрытие темы": "Этот фрагмент раскрывает тему '{}'",
-    "пояснение на примере": "Этот фрагмент иллюстрирует тему '{}' на примере",
-    "лирическое отступление": "Это содержательное отступление от темы '{}'",
-    "ключевой тезис": "Этот фрагмент формулирует основную мысль по теме '{}'",
-    "шум": "Этот фрагмент не относится к теме '{}'",
-    # Метки, НЕ ЗАВИСЯЩИЕ от темы
-    "метафора / аналогия": "Это метафора или аналогия",
-    "юмор / ирония / сарказм": "Это юмор, ирония или сарказм",
-    "связующий переход": "Это связующий переход между частями текста",
-    "смена темы": "Этот фрагмент обозначает смену темы",
-    "противопоставление / контраст": "Этот фрагмент содержит противопоставление или контраст"
-}
+# Загружаем классификатор при импорте модуля
+load_local_classifier()
 
-# Возвращаем определение списка меток, зависящих от темы
-TOPIC_DEPENDENT_LABELS = ["раскрытие темы", "пояснение на примере", "лирическое отступление", "ключевой тезис", "шум"]
+# -----------------------------------------------------------------------------
+# Вспомогательные функции
+# -----------------------------------------------------------------------------
 
-# --- Новые вспомогательные функции --- 
+def get_cache_key(text: str, topic: str) -> str:
+    """Создает уникальный ключ кеша для локального анализа."""
+    # Используем хеш для предотвращения слишком длинных ключей
+    text_hash = hashlib.md5(text.encode()).hexdigest()
+    topic_hash = hashlib.md5(topic.encode()).hexdigest()
+    key = f"local_{text_hash[:16]}_{topic_hash[:16]}"
+    return key
+
 def prepare_numbered_text_block(paragraph_texts: List[str]) -> str:
-    """Нумерует параграфы и объединяет их в один блок текста."""
+    """
+    Нумерует абзацы (1., 2., ...) и соединяет их двойными переводами строк
+    для передачи в API одним блоком.
+    """
+    if not paragraph_texts:
+        return ""
     numbered_items = [f"{i+1}. {text}" for i, text in enumerate(paragraph_texts)]
     return "\n\n".join(numbered_items)
 
 def parse_gpt_response(response_text: str, expected_count: int) -> List[str]:
-    """Парсит ответ GPT, ожидая строки вида 'N. Метка'."""
-    parsed_labels = {} # Словарь для хранения {номер: метка}
+    """
+    Анализирует ответ GPT (ожидаемый формат: 'N. роль' или 'N. роль1 / роль2'), извлекая метки.
+    Возвращает список меток или 'parsing_error' для нераспознанных строк.
+    """
+    parsed_labels = {}  # Словарь {номер_параграфа: метка(и)}
     lines = response_text.strip().split('\n')
-    pattern = re.compile(r"^\s*(\d+)\.\s*(.+?)\s*$") # N. Метка (с возможными пробелами)
-
+    # Паттерн: N. Метка (возможно с пробелами, может включать '/')
+    pattern = re.compile(r"^\s*(\d+)\.?\s*(.+?)\s*$") 
+    
+    valid_api_labels_set = set(API_LABELS)
+    
     for line in lines:
         match = pattern.match(line)
         if match:
             try:
                 paragraph_num = int(match.group(1))
-                label = match.group(2).strip() # Убираем лишние пробелы у метки
-                # Проверка, что метка валидна (известна)
-                if label in API_LABELS:
-                     parsed_labels[paragraph_num] = label
-                else:
-                    logging.warning(f"[Парсер API] Неизвестная метка '{label}' для параграфа {paragraph_num} в строке: '{line}'")
+                # Извлекаем метку(и) и убираем лишние пробелы
+                labels_part = match.group(2).strip() 
+                
+                # Проверяем каждую метку (если их несколько, разделенных '/')
+                current_labels = []
+                possible_labels = [l.strip() for l in labels_part.split('/')]
+                
+                valid_found = False
+                for label in possible_labels:
+                    if label in valid_api_labels_set:
+                        current_labels.append(label)
+                        valid_found = True
+                    elif label: # Логируем только непустые нераспознанные метки
+                        logging.warning(f"[Парсер API] Неизвестная или некорректная метка '{label}' для параграфа {paragraph_num} в строке: '{line}'")
+                
+                if valid_found:
+                     # Сохраняем валидные метки, объединенные через "/"
+                     parsed_labels[paragraph_num] = " / ".join(current_labels)
+                
             except ValueError:
                 logging.warning(f"[Парсер API] Не удалось извлечь номер параграфа из строки: '{line}'")
-        else:
-            # Логируем только непустые строки, которые не совпали
-            if line.strip(): 
-                logging.warning(f"[Парсер API] Строка не соответствует формату 'N. Метка': '{line}'")
-
-    # Собираем результат в нужном порядке, заполняя пропуски
+            except Exception as e:
+                 logging.error(f"[Парсер API] Ошибка парсинга строки '{line}': {e}")
+        elif line.strip(): # Логируем непустые строки, не соответствующие формату
+            logging.warning(f"[Парсер API] Строка не соответствует формату 'N. Метка(и)': '{line}'")
+            
+    # Формируем итоговый список, используя 'parsing_error' для отсутствующих номеров
     result_list = [parsed_labels.get(i + 1, "parsing_error") for i in range(expected_count)]
     
-    found_count = len(parsed_labels)
+    # Проверяем, все ли параграфы получили метку
+    found_count = sum(1 for label in result_list if label != "parsing_error")
     if found_count != expected_count:
-         logging.warning(f"[Парсер API] Ожидалось {expected_count} меток, найдено {found_count}. Заполняю недостающие/ненайденные как 'parsing_error'.")
+        missing_count = expected_count - found_count
+        logging.warning(f"[Парсер API] Не удалось извлечь метки для {missing_count} из {expected_count} параграфов. Они помечены как 'parsing_error'.")
+        missing_indices = [i + 1 for i, label in enumerate(result_list) if label == "parsing_error"]
+        if missing_indices:
+             logging.debug(f"[Парсер API] Номера параграфов без меток: {missing_indices}")
 
     return result_list
 
-# --- Обновляем функцию создания промпта --- 
 def _create_api_prompt(topic_prompt: str, numbered_text: str) -> List[Dict[str, str]]:
-    """Создает промпт для OpenAI API с четкими инструкциями и списком меток."""
+    """Создаёт промпт для OpenAI API точно по формату документации."""
     
-    # Формируем строку со списком меток и их описаний
-    labels_string = ""
-    for label in API_LABELS:
-        desc_template = API_LABEL_DESCRIPTIONS.get(label, "Описание отсутствует")
-        description = ""
-        # Подставляем тему, если метка этого требует
-        if label in TOPIC_DEPENDENT_LABELS:
-            try:
-                description = desc_template.format(topic_prompt if topic_prompt else "[ТЕМА НЕ УКАЗАНА]")
-            except Exception as e:
-                logging.warning(f"[Промпт API] Ошибка форматирования описания для метки '{label}': {e}")
-                description = desc_template # Оставляем шаблон как есть
+    # Формируем блок описания ролей
+    roles_description = ""
+    for i, label in enumerate(API_LABELS, 1):
+        # Заменяем "/" на "или" для отображения в промпте
+        display_label = label.replace(" / ", " или ")
+        description = f"{i}. {display_label}" # Используем display_label
+        
+        if label in API_TOPIC_LABELS: # Проверяем по оригинальной метке
+            # Подставляем тему в плейсхолдер <ТЕМА> и добавляем описание
+            base_desc = "фрагмент расширяет, развивает или продолжает основную тему: '{}'".format(topic_prompt)
+            if label == "пояснение на примере":
+                base_desc = "фрагмент иллюстрирует тему '{}' с помощью конкретного случая, аналога или бытовой ситуации".format(topic_prompt)
+            elif label == "лирическое отступление":
+                 base_desc = "содержательное отступление от темы '{}', предлагающее культурное, философское или эмоциональное размышление".format(topic_prompt)
+            elif label == "ключевой тезис":
+                 base_desc = "краткая формулировка центральной мысли или главного вывода по теме '{}', часто лаконична и утверждающая".format(topic_prompt)
+            elif label == "шум":
+                 base_desc = "фрагмент не имеет отношения к теме '{}' и не добавляет ценности обсуждению".format(topic_prompt)
+            description += f" — {base_desc}"
         else:
-            description = desc_template
-        # Добавляем строку в формате "Метка: Описание"
-        labels_string += f"- {label}: {description}\n"
-    labels_string = labels_string.strip() # Убираем лишний перевод строки в конце
+             # Для остальных меток - базовое описание
+            # Проверяем по оригинальной метке
+            if label == "метафора или аналогия": 
+                description += " — образное или переносное выражение, сравнение, аллегория"
+            elif label == "юмор или ирония или сарказм":
+                description += " — элементы, предназначенные вызвать улыбку, комический эффект или критическое осмысление через иронию"
+            elif label == "связующий переход":
+                description += " — фраза или предложение, служащее мостом между частями текста"
+            elif label == "смена темы":
+                description += " — явное или скрытое переключение внимания с одной темы на другую"
+            elif label == "противопоставление или контраст":
+                description += " — фрагмент подчёркивает различие, оппозицию или конфликт идей"
+        roles_description += description + "\n"
+        
+    # Убираем последний перевод строки
+    roles_description = roles_description.strip()
 
-    system_prompt = (
-        "Ты - ассистент для анализа текста. Твоя задача - определить семантическую функцию КАЖДОГО нумерованного фрагмента текста, "
-        "используя ТОЛЬКО одну метку из предоставленного списка для каждого фрагмента."
-    )
+    # Системный промпт
+    system_prompt = "Ты — языковой аналитик. Классифицируй текст по ролям."
+
+    # Пользовательский промпт (из документации)
     user_prompt = (
-        f"Вот список доступных семантических меток и их описаний:\n{labels_string}\n\n"
-        f"Проанализируй следующий текст, разбитый на нумерованные фрагменты:\n\n{numbered_text}\n\n"
-        "--- ИНСТРУКЦИЯ ПО ВЫВОДУ ---\n"
-        "Для КАЖДОГО номера фрагмента (от 1 до N) выведи ТОЛЬКО ОДНУ наиболее подходящую метку ТОЧНО ТАК, КАК она указана в списке ДО двоеточия (например, 'раскрытие темы', 'юмор / ирония / сарказм'). "
-        "Выведи результат строго в формате 'Номер. Метка' для каждого фрагмента, каждый на новой строке. "
-        "НЕ ИСПОЛЬЗУЙ описания меток в своем ответе. НЕ ДОБАВЛЯЙ никаких других пояснений, комментариев или вводных фраз."
+        f"Задание: Определи одну или две наиболее подходящие семантические роли каждого абзаца из списка ниже.\n\n"
+        f"Возможные роли:\n{roles_description}\n\n" # Обратите внимание: \n вместо \\n, так как f-string сама обрабатывает
+        f"Ответ: укажи для каждого абзаца только одну или две роли, точно как в списке выше, без дополнительных пояснений.\n\n"
+        f"{numbered_text}" # Подставляем нумерованный текст напрямую
     )
-
-    logging.info(f"[API Промпт] System: {system_prompt[:200]}... User: {user_prompt[:500]}...")
-    # Логируем полный промпт на уровне DEBUG для детальной отладки
-    logging.debug(f"[API Промпт Полный] System: {system_prompt} User: {user_prompt}") 
-
+    
+    # Возвращаем структуру для Chat Completions API
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
 
-# --- Локальный Fallback Метод (Обновленный для Batch) ---
-def analyze_semantic_function_local_batch(paragraph_texts: list[str], topic_prompt: str) -> List[str]:
-    """Анализирует семантическую функцию списком (локальный метод, fallback)."""
+# -----------------------------------------------------------------------------
+# Основные функции анализа
+# -----------------------------------------------------------------------------
+
+def analyze_semantic_function_local(
+    paragraph_text: str, 
+    topic_prompt: str
+) -> str:
+    """
+    Анализирует семантическую функцию ОДНОГО параграфа локальной моделью.
+    Возвращает строку с топ-N метками (score > порога) или 'error'/'empty'.
+    """
+    global GLOBAL_RESULT_CACHE, local_classifier
+    
+    # Проверки
     if local_classifier is None:
-        logging.error("Локальный классификатор не загружен. Невозможно выполнить fallback анализ.")
-        return ["local_model_error"] * len(paragraph_texts)
+        logging.warning("[Локальный анализ] Классификатор не загружен.")
+        return "error: classifier not loaded"
+    
+    if not paragraph_text:
+        logging.debug("[Локальный анализ] Пустой параграф.")
+        return "empty"
+    
+    # Проверяем кеш
+    cache_key = get_cache_key(paragraph_text, topic_prompt)
+    if cache_key in GLOBAL_RESULT_CACHE:
+        logging.debug(f"[Локальный анализ] Кеш хит для ключа: {cache_key}")
+        return GLOBAL_RESULT_CACHE[cache_key]
+    
+    try:
+        # Подготовка гипотез с подстановкой темы
+        all_hypotheses = []
+        main_labels_map = [] # Список основных меток, соответствующий all_hypotheses
 
-    all_results = []
-    num_paragraphs = len(paragraph_texts)
-    logging.info(f"Запуск локального анализа семантики для {num_paragraphs} параграфов...")
-
-    for i, text in enumerate(paragraph_texts):
-        if not text or pd.isna(text):
-            all_results.append("empty_paragraph")
-            continue
-            
-        current_best_label = "local_fallback_error"
-        max_score = -1.0
+        for main_label, synonyms in LABEL_SYNONYMS_LOCAL.items():
+            for synonym_template in synonyms:
+                # Подставляем тему в плейсхолдер <ТЕМА>, если он есть
+                hypothesis = synonym_template.replace(LOCAL_TOPIC_PLACEHOLDER, topic_prompt)
+                all_hypotheses.append(hypothesis)
+                main_labels_map.append(main_label)
         
-        try:
-            topic_labels = {k: v for k, v in LABEL_SYNONYMS_LOCAL.items() if k in TOPIC_DEPENDENT_LABELS}
-            neutral_labels = {k: v for k, v in LABEL_SYNONYMS_LOCAL.items() if k not in TOPIC_DEPENDENT_LABELS}
-            
-            all_hypotheses = []
-            label_map = []
-            
-            for main_label, synonyms in topic_labels.items():
-                if topic_prompt:
-                    formatted_synonyms = [TEMPLATE_WITH_TOPIC_LOCAL.format(topic=topic_prompt, hypothesis=s) for s in synonyms]
-                else:
-                    logging.debug(f"[Локальный] Тема пуста, используем нейтральный шаблон для '{main_label}'")
-                    formatted_synonyms = [TEMPLATE_NEUTRAL_LOCAL.format(s) for s in synonyms]
-                all_hypotheses.extend(formatted_synonyms)
-                label_map.extend([main_label] * len(synonyms))
-            
-            for main_label, synonyms in neutral_labels.items():
-                formatted_synonyms = [TEMPLATE_NEUTRAL_LOCAL.format(s) for s in synonyms]
-                all_hypotheses.extend(formatted_synonyms)
-                label_map.extend([main_label] * len(synonyms))
-
-            if not isinstance(text, str):
-                 logging.warning(f"[Локальный] Ожидался текст (str) для параграфа {i+1}, получен {type(text)}. Пропуск.")
-                 all_results.append("invalid_input_type")
-                 continue
-                 
-            classifier_output = local_classifier(text, all_hypotheses, multi_label=False)
-            
-            best_hypothesis_index = all_hypotheses.index(classifier_output['labels'][0])
-            current_best_label = label_map[best_hypothesis_index]
-            max_score = classifier_output['scores'][0]
-            logging.debug(f"[Локальный] Параграф {i+1}: Лучшая метка={current_best_label} (Score: {max_score:.3f})") 
-
-        except Exception as e:
-            logging.error(f"[Локальный] Ошибка анализа параграфа {i+1}: {e}", exc_info=True)
-            current_best_label = "local_analysis_error"
-            
-        all_results.append(current_best_label)
+        logging.debug(f"[Локальный анализ] Запрос к классификатору для параграфа (длина {len(paragraph_text)}), гипотез: {len(all_hypotheses)}")
+        # Запрос к локальной модели
+        # Используем multi_label=True, т.к. один параграф может выполнять >1 роли
+        result = local_classifier(paragraph_text, all_hypotheses, multi_label=True) 
         
-    logging.info(f"Локальный анализ семантики завершен для {num_paragraphs} параграфов.")
-    return all_results
+        # Агрегация скоров по основным меткам (берем максимальный скор среди синонимов)
+        aggregated_scores: Dict[str, float] = {}
+        if result and 'scores' in result and 'labels' in result and len(result['scores']) == len(all_hypotheses):
+            for i, score in enumerate(result["scores"]):
+                main_label = main_labels_map[i]
+                if main_label not in aggregated_scores or score > aggregated_scores[main_label]:
+                    aggregated_scores[main_label] = score
+        else:
+             logging.warning(f"[Локальный анализ] Неожиданный формат ответа классификатора: {result}")
+             
+        logging.debug(f"[Локальный анализ] Агрегированные скоры: {aggregated_scores}")
+                
+        # Фильтрация по порогу и сортировка
+        filtered_sorted_labels = sorted(
+            [(label, score) for label, score in aggregated_scores.items() if score >= LOCAL_SCORE_THRESHOLD],
+            key=lambda item: item[1], 
+            reverse=True
+        )
+        
+        # Выбираем топ-N (или меньше, если их меньше)
+        top_labels = filtered_sorted_labels[:LOCAL_TOP_N]
+        
+        # Форматируем результат в строку: "метка1 (скор1), метка2 (скор2), ..."
+        if top_labels:
+            result_string = ", ".join([f"{label} ({score:.2f})" for label, score in top_labels])
+        else:
+            # Если ни одна метка не прошла порог, возвращаем метку с наивысшим скором (если есть)
+            if aggregated_scores:
+                max_label = max(aggregated_scores, key=aggregated_scores.get)
+                max_score = aggregated_scores[max_label]
+                # Помечаем, что она ниже порога
+                result_string = f"{max_label} ({max_score:.2f}) (below threshold)" 
+                logging.debug(f"[Локальный анализ] Ни одна метка не прошла порог {LOCAL_SCORE_THRESHOLD}. Возвращена лучшая: {result_string}")
+            else:
+                result_string = "no label found" # Маловероятно, но возможно
+                logging.warning("[Локальный анализ] Не найдено ни одной метки после агрегации.")
 
-# --- API Метод (Обновленный для Batch) ---
-def analyze_semantic_function_api_batch(paragraph_texts: list[str], topic_prompt: str, client: openai.OpenAI) -> List[str] | None:
-    """Анализирует семантическую функцию списком с помощью OpenAI API."""
+        # Кешируем и возвращаем
+        logging.debug(f"[Локальный анализ] Результат: '{result_string}'")
+        GLOBAL_RESULT_CACHE[cache_key] = result_string
+        return result_string
+            
+    except Exception as e:
+        logging.error(f"[Локальный анализ] Ошибка при обработке параграфа: {e}", exc_info=True)
+        # Можно добавить текст параграфа в лог ошибки для отладки
+        logging.debug(f"Текст параграфа с ошибкой: {paragraph_text[:100]}...") 
+        return "error: analysis failed"
+
+def analyze_semantic_function_local_batch(
+    paragraph_texts: List[str], 
+    topic_prompt: str
+) -> List[str]:
+    """
+    Пакетный анализ семантической функции локальной моделью.
+    Обрабатывает каждый параграф индивидуально через analyze_semantic_function_local.
+    """
+    if not paragraph_texts:
+        logging.warning("[Локальный батч] Пустой список параграфов.")
+        return []
+        
+    results = []
+    total_paragraphs = len(paragraph_texts)
+    processed_count = 0
+    
+    logging.info(f"[Локальный батч] Начало обработки {total_paragraphs} параграфов...")
+    
+    for i, para_text in enumerate(paragraph_texts):
+        result = analyze_semantic_function_local(para_text, topic_prompt)
+        results.append(result)
+        processed_count += 1
+        # Логирование прогресса каждые N параграфов или в конце
+        if processed_count % 50 == 0 or processed_count == total_paragraphs:
+             logging.info(f"[Локальный батч] Обработано {processed_count}/{total_paragraphs}...")
+
+    logging.info(f"[Локальный батч] Обработка завершена.")
+    return results
+
+def analyze_semantic_function_api_batch(
+    paragraph_texts: List[str], 
+    topic_prompt: str, 
+    client: Any # Ожидается инициализированный клиент OpenAI
+) -> Optional[List[str]]:
+    """
+    Пакетный анализ семантической функции через OpenAI API.
+    Отправляет все параграфы одним запросом.
+    """
     num_paragraphs = len(paragraph_texts)
     if num_paragraphs == 0:
-        return []
-
-    numbered_text = prepare_numbered_text_block(paragraph_texts)
-    messages = _create_api_prompt(topic_prompt, numbered_text)
-
+        logging.warning("[API батч] Пустой список параграфов.")
+        return None # Возвращаем None при пустом входе, чтобы оркестратор понял
+    
+    # Проверяем наличие клиента и класса OpenAI (на случай если импорт не удался)
+    if client is None or OpenAI is None:
+        logging.error("[API батч] OpenAI клиент не предоставлен или модуль OpenAI не импортирован.")
+        return None
+    
     try:
-        logging.info(f"[API] Отправка запроса к {API_MODEL_NAME} для {num_paragraphs} параграфов.")
-        response = client.chat.completions.create(
-            model=API_MODEL_NAME,
-            messages=messages,
-            temperature=API_TEMPERATURE,
-            max_tokens=max(500, num_paragraphs * 40) # Оставляем запас
-        )
-        response_content = response.choices[0].message.content
-        logging.info(f"[API] Получен ответ от GPT (длина {len(response_content)}).")
-        logging.debug(f"[API] Текст ответа:\n{response_content}")
+        # 1. Подготовка нумерованного текста
+        numbered_text = prepare_numbered_text_block(paragraph_texts)
+        if not numbered_text:
+             logging.error("[API батч] Не удалось создать нумерованный блок текста.")
+             return None
 
-        parsed_result = parse_gpt_response(response_content, num_paragraphs)
-        return parsed_result
-
-    except openai.APIConnectionError as e:
-        logging.error(f"[API Ошибка] Ошибка соединения с OpenAI: {e}")
-    except openai.RateLimitError as e:
-        logging.error(f"[API Ошибка] Превышен лимит запросов OpenAI: {e}")
-    except openai.APIStatusError as e:
-        logging.error(f"[API Ошибка] Ошибка статуса OpenAI (HTTP {e.status_code}): {e.response}")
-    except Exception as e:
-        logging.error(f"[API Ошибка] Непредвиденная ошибка при вызове OpenAI API: {e}", exc_info=True)
-
-    return None
-
-# --- Основная Функция (Оркестратор - Новая Batch Версия) ---
-def analyze_semantic_function_batch(df: pd.DataFrame, topic_prompt: str, client: openai.OpenAI | None) -> pd.DataFrame:
-    """Оркестратор для анализа семантической функции (batch)."""
-    paragraph_texts = df['text'].tolist()
-    results = None
-    method_used = "unknown"
-    num_paragraphs = len(paragraph_texts)
-
-    if client:
-        logging.info("Обнаружен OpenAI API ключ и клиент, попытка использовать batch API...")
-        api_results = analyze_semantic_function_api_batch(paragraph_texts, topic_prompt, client)
+        # 2. Создание промпта
+        messages = _create_api_prompt(topic_prompt, numbered_text)
         
-        if api_results is not None and isinstance(api_results, list) and len(api_results) == len(paragraph_texts):
-            if not any("error" in str(label).lower() for label in api_results):
-                logging.info("[Оркестратор] API отработал успешно, используем его результаты.")
-                results = api_results
-                method_used = "api_batch"
-            else:
-                first_error = next((label for label in api_results if "error" in str(label).lower()), "unknown_error")
-                logging.warning(f"[Оркестратор] Обнаружена ошибка ('{first_error}') в ответе API. Переключаюсь на локальный fallback.")
-        else:
-             logging.warning("[Оркестратор] API вызов не вернул ожидаемый результат. Переключаюсь на локальный fallback.")
-    else:
-        # Логирование причин отсутствия клиента теперь в main.py при проверке импортированного client
-        pass # Просто продолжаем к fallback
+        # 3. Вызов API
+        logging.info(f"[API батч] Вызов OpenAI API ({API_MODEL_NAME}) для {num_paragraphs} параграфов...")
+        
+        # Рассчитываем примерный max_tokens с запасом
+        estimated_max_tokens = max(500, num_paragraphs * API_TOKENS_PER_PARAGRAPH_ESTIMATE) 
+        if estimated_max_tokens > API_MAX_TOKENS_PER_REQUEST:
+             logging.warning(f"[API батч] Расчетный max_tokens ({estimated_max_tokens}) превышает лимит {API_MAX_TOKENS_PER_REQUEST}. Используем лимит.")
+             estimated_max_tokens = API_MAX_TOKENS_PER_REQUEST
 
-    if results is None:
-        if local_classifier:
-            logging.warning(f"Переход на локальный fallback метод ('{MODEL_NAME_LOCAL}').")
-            results = analyze_semantic_function_local_batch(paragraph_texts, topic_prompt)
-            method_used = "local_fallback"
+        current_api_params = API_PARAMS.copy()
+        current_api_params["max_tokens"] = estimated_max_tokens
+        
+        response = client.chat.completions.create(
+            messages=messages,
+            **current_api_params # Передаем параметры, включая рассчитанный max_tokens
+        )
+        
+        # 4. Обработка ответа
+        if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
+            logging.error("[API батч] API не вернул контент в ответе.")
+            # Логирование деталей ответа для диагностики
+            logging.debug(f"Полный ответ API: {response}")
+            return None
+        
+        response_text = response.choices[0].message.content
+        logging.debug(f"[API батч] Получен ответ от API (длина {len(response_text)}):\n" 
+                    f"---\n{response_text}\n---")
+
+        # 5. Парсинг ответа
+        labels = parse_gpt_response(response_text, num_paragraphs)
+        
+        # Проверяем, не вернулись ли только ошибки парсинга
+        if all(l == "parsing_error" for l in labels):
+             logging.error("[API батч] Не удалось распарсить ни одной метки из ответа API.")
+             return None # Считаем это неудачей
+
+        logging.info(f"[API батч] Успешно извлечено {sum(1 for l in labels if l != 'parsing_error')}/{num_paragraphs} меток из ответа.")
+        return labels
+        
+    except APIConnectionError as e:
+        logging.error(f"[API батч] Ошибка соединения с OpenAI API: {e}", exc_info=False) 
+        return None
+    except RateLimitError as e:
+        logging.error(f"[API батч] Превышен лимит запросов OpenAI API: {e}", exc_info=False)
+        return None
+    except APIStatusError as e:
+        logging.error(f"[API батч] Ошибка статуса OpenAI API: {e.status_code} - {e.response.text}", exc_info=False)
+        return None
+    except Exception as e:
+        logging.error(f"[API батч] Неожиданная ошибка при вызове API: {e}", exc_info=True)
+        return None
+
+def analyze_semantic_function_batch(
+    df: pd.DataFrame, 
+    topic_prompt: str, 
+    client: Optional[Any] # Клиент OpenAI может быть None
+) -> pd.DataFrame:
+    """
+    Оркестратор анализа семантической функции.
+    Пытается использовать API, при неудаче переключается на локальную модель.
+    Записывает результаты в колонки 'semantic_function' и 'semantic_method'.
+    """
+    
+    # 1. Проверка DataFrame
+    if not isinstance(df, pd.DataFrame) or 'text' not in df.columns:
+        logging.error("[Оркестратор] DataFrame не содержит колонку 'text'")
+        df['semantic_function'] = 'error: invalid input df'
+        df['semantic_method'] = 'error'
+        return df
+    
+    paragraphs = df['text'].tolist()
+    num_paragraphs = len(paragraphs)
+    if num_paragraphs == 0:
+        logging.warning("[Оркестратор] Пустой список параграфов в DataFrame.")
+        df['semantic_function'] = [] # Пустые списки для пустых DF
+        df['semantic_method'] = []
+        return df
+
+    logging.info(f"[Оркестратор] Запуск семантического анализа для {num_paragraphs} параграфов. Тема: '{topic_prompt}'")
+
+    # 2. Попытка API анализа
+    results = None # Инициализируем None
+    method_used = "error" # Начальное значение
+
+    # Проверяем наличие клиента и модуля OpenAI
+    if client is not None and OpenAI is not None:
+        logging.info("[Оркестратор] Попытка анализа через OpenAI API...")
+        api_results = analyze_semantic_function_api_batch(paragraphs, topic_prompt, client)
+        
+        # Проверяем, вернулся ли валидный список нужной длины
+        if isinstance(api_results, list) and len(api_results) == num_paragraphs:
+             results = api_results
+             method_used = 'api'
+             logging.info("[Оркестратор] API анализ вернул результат.")
+             # Доп. проверка на ошибки парсинга (не блокируем, но логируем)
+             parsing_errors = sum(1 for res in api_results if res == "parsing_error")
+             if parsing_errors > 0:
+                  logging.warning(f"[Оркестратор] API результат содержит {parsing_errors} ошибок парсинга.")
         else:
-            logging.error("Локальная модель недоступна. Не удалось определить семантическую функцию.")
-            results = ["error_no_model"] * num_paragraphs
-            method_used = "error_no_model"
-            
+            logging.warning("[Оркестратор] API анализ не удался (вернул None или некорректный результат). Переход к локальному fallback.")
+            # results остается None
+    else:
+        logging.info("[Оркестратор] OpenAI клиент не настроен или модуль не импортирован, пропускаем API анализ.")
+
+    # 3. Локальный анализ (Fallback), если API не сработал (results все еще None)
+    if results is None:
+        logging.info("[Оркестратор] Переход к локальному анализу (Fallback)...")
+        # Проверяем, загружен ли локальный классификатор
+        if local_classifier is not None:
+            local_results = analyze_semantic_function_local_batch(paragraphs, topic_prompt)
+            # Проверяем результат локального анализа
+            if isinstance(local_results, list) and len(local_results) == num_paragraphs:
+                 results = local_results
+                 method_used = 'local_fallback'
+                 logging.info("[Оркестратор] Локальный анализ успешно завершен.")
+            else:
+                 logging.error(f"[Оркестратор] Локальный анализ вернул некорректный результат (тип: {type(local_results)}, длина: {len(local_results or [])}).")
+                 results = ["error: local analysis failed"] * num_paragraphs # Заполняем ошибками
+                 method_used = 'error'
+        else:
+             logging.error("[Оркестратор] Локальный классификатор не загружен, fallback невозможен.")
+             results = ["error: no local model"] * num_paragraphs
+             method_used = 'error'
+
+    # 4. Запись результатов в DataFrame
     df['semantic_function'] = results
     df['semantic_method'] = method_used
+    logging.info(f"[Оркестратор] Семантический анализ завершен. Использован метод: '{method_used}'.")
     
-    if results:
-        logging.info(f"Семантический анализ через '{method_used}' ({len(results)} меток) завершен.")
-        logging.debug(f"[Оркестратор] Пример результата: {results[:5]}...")
-    else:
-         logging.error("Не удалось получить результаты семантического анализа.")
+    # Очистка кеша после завершения анализа одного текста (опционально)
+    # global GLOBAL_RESULT_CACHE
+    # GLOBAL_RESULT_CACHE.clear()
+    # logging.debug("[Оркестратор] Локальный кеш очищен.")
 
     return df
