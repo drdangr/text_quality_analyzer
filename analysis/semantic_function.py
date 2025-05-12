@@ -22,6 +22,11 @@ import torch
 import pandas as pd
 import hashlib
 
+# Отключаем логирование HTTP-клиента OpenAI и прочих внешних библиотек
+logging.getLogger("openai").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+
 # Подключаем Transformers для локальной модели
 try:
     from transformers import pipeline
@@ -403,7 +408,7 @@ def analyze_semantic_function_local(
     except Exception as e:
         logging.error(f"[Локальный анализ] Ошибка при обработке параграфа: {e}", exc_info=True)
         # Можно добавить текст параграфа в лог ошибки для отладки
-        logging.debug(f"Текст параграфа с ошибкой: {paragraph_text[:100]}...") 
+        # logging.debug(f"Текст параграфа с ошибкой: {paragraph_text[:100]}...") 
         return "error: analysis failed"
 
 def analyze_semantic_function_local_batch(
@@ -485,12 +490,11 @@ def analyze_semantic_function_api_batch(
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
             logging.error("[API батч] API не вернул контент в ответе.")
             # Логирование деталей ответа для диагностики
-            logging.debug(f"Полный ответ API: {response}")
+            # logging.debug(f"Полный ответ API: {response}")
             return None
         
         response_text = response.choices[0].message.content
-        logging.debug(f"[API батч] Получен ответ от API (длина {len(response_text)}):\n" 
-                    f"---\n{response_text}\n---")
+        logging.debug(f"[API батч] Получен ответ от API (длина {len(response_text)})")
 
         # 5. Парсинг ответа
         labels = parse_gpt_response(response_text, num_paragraphs)

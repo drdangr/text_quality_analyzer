@@ -74,14 +74,14 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
 
         # 3. Готовим DataFrame для отображения
         df_display = df[['semantic_function', 'text']].copy()
-        df_display.columns = ['Semantic', 'Text']
+        df_display.columns = ['Семантика', 'Текст']
 
         # 4. Генерируем базовый HTML таблицы
         styler = df_display.style
         styler.hide(axis="index")
-        styler.set_properties(subset=['Text'], **{'text-align': 'left'})
-        styler.set_properties(subset=['Semantic'], **{'text-align': 'left', 'vertical-align': 'top'})
-        styler.set_td_classes(pd.DataFrame([['semantic-cell', 'text-cell']]*len(df_display), index=df_display.index, columns=['Semantic', 'Text']))
+        styler.set_properties(subset=['Текст'], **{'text-align': 'left'})
+        styler.set_properties(subset=['Семантика'], **{'text-align': 'left', 'vertical-align': 'top'})
+        styler.set_td_classes(pd.DataFrame([['semantic-cell', 'text-cell']]*len(df_display), index=df_display.index, columns=['Семантика', 'Текст']))
         html_table_content = styler.to_html(escape=False)
 
         # 5. Подготовка данных для передачи в JavaScript
@@ -107,10 +107,10 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>Interactive Text Analysis Report</title>
+            <title>Интерактивный анализ текста</title>
             <style>
                 body {{ font-family: sans-serif; margin: 20px; }}
-                h1 {{ margin-bottom: 25px; font-size: 1.8em; color: #333; }}
+                h1 {{ margin-bottom: 25px; font-size: 14.4pt; color: #333; }}
                 table {{ border-collapse: collapse; width: 100%; margin-top: 20px; table-layout: fixed; }}
                 th, td {{ border: 1px solid #ddd; padding: 8px; vertical-align: top; word-wrap: break-word; }}
                 th {{ background-color: #f2f2f2; text-align: center; }}
@@ -118,11 +118,44 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                 th:nth-child(2) {{ width: 85%; }}
                 .text-cell {{ white-space: pre-wrap; }}
                 .semantic-cell {{ /* Стили для ячеек semantic */ }}
-                .controls {{ display: flex; gap: 15px; margin-bottom: 15px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #eee; padding-bottom: 15px; }}
-                .control-group {{ display: flex; flex-direction: column; align-items: center; }}
-                label {{ margin-bottom: 5px; font-size: 0.85em; color: #555; }}
+                .controls {{ 
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    margin-bottom: 15px;
+                    padding-bottom: 15px;
+                    border-bottom: 1px solid #eee;
+                }}
+                .control-row {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                    align-items: center;
+                }}
+                .control-group {{ 
+                    display: flex; 
+                    align-items: center;
+                    gap: 5px;
+                }}
+                .minmax-group {{ 
+                    display: flex; 
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    align-items: center;
+                }}
+                label {{ margin-right: 5px; font-size: 9pt; color: #555; }}
                 input[type="color"] {{ width: 45px; height: 25px; border: 1px solid #ccc; padding: 0; cursor: pointer; }}
-                input[type="number"] {{ width: 50px; padding: 4px; font-size: 0.9em; }}
+                input[type="number"] {{ width: 65px; padding: 4px; font-size: 10pt; }}
+                button {{ 
+                    padding: 6px 12px;
+                    background-color: #4e6baf;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 10pt;
+                }}
+                button:hover {{ background-color: #3d5a9e; }}
                 .heatmap-bar-container {{ margin-bottom: 20px; margin-top: 5px; }}
                 #signalHeatmapBar {{
                     height: 25px;
@@ -136,30 +169,40 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
             <h1>{topic}</h1>
 
             <div class="controls">
-                 <div class="control-group">
-                    <label for="fontSizeInput">Font Size (px)</label>
-                    <input type="number" id="fontSizeInput" value="{default_font_size}" min="8" max="30">
-                 </div>
-                 <div class="control-group">
-                    <label for="signalMinColor">Signal Min ({min_signal:.3f})</label>
-                    <input type="color" id="signalMinColor" value="{default_colors['signal_min']}">
-                </div>
-                <div class="control-group">
-                    <label for="signalMaxColor">Signal Max ({max_signal:.3f})</label>
-                    <input type="color" id="signalMaxColor" value="{default_colors['signal_max']}">
-                </div>
-                <div class="control-group">
-                    <label for="complexityMinColor">Complexity Min ({min_complexity:.3f})</label>
-                    <input type="color" id="complexityMinColor" value="{default_colors['complexity_min']}">
-                </div>
-                 <div class="control-group">
-                    <label for="complexityMaxColor">Complexity Max ({max_complexity:.3f})</label>
-                    <input type="color" id="complexityMaxColor" value="{default_colors['complexity_max']}">
+                <div class="control-row">
+                    <div class="control-group">
+                        <label for="fontSizeInput">Размер шрифта (pt):</label>
+                        <input type="number" id="fontSizeInput" value="{default_font_size}" min="8" max="30">
+                    </div>
+                
+                    <div class="minmax-group">
+                        <label>Сигнал:</label>
+                        <div class="control-group">
+                            <label for="signalMinColor">Мин:</label>
+                            <input type="color" id="signalMinColor" value="{default_colors['signal_min']}">
+                        </div>
+                        <div class="control-group">
+                            <label for="signalMaxColor">Макс:</label>
+                            <input type="color" id="signalMaxColor" value="{default_colors['signal_max']}">
+                        </div>
+                    </div>
+                
+                    <div class="minmax-group">
+                        <label>Сложность:</label>
+                        <div class="control-group">
+                            <label for="complexityMinColor">Мин:</label>
+                            <input type="color" id="complexityMinColor" value="{default_colors['complexity_min']}">
+                        </div>
+                        <div class="control-group">
+                            <label for="complexityMaxColor">Макс:</label>
+                            <input type="color" id="complexityMaxColor" value="{default_colors['complexity_max']}">
+                        </div>
+                    </div>
                 </div>
             </div>
             
             <div class="heatmap-bar-container">
-                <label for="signalHeatmapBar" style="font-size: 0.85em; color: #555; display: block; margin-bottom: 5px;">Карта распределения соотношения Сигнал/Шум в документе:</label>
+                <label for="signalHeatmapBar" style="font-size: 9pt; color: #555; display: block; margin-bottom: 5px;">Карта распределения соотношения Сигнал/Шум в документе:</label>
                 <div id="signalHeatmapBar"></div>
             </div>
 
@@ -171,6 +214,12 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                 const ranges = {js_ranges_json};
                 let currentColors = {js_default_colors_json};
                 let currentFontSize = {default_font_size};
+                let currentRanges = {{
+                    min_signal: ranges.min_signal,
+                    max_signal: ranges.max_signal,
+                    min_complexity: ranges.min_complexity,
+                    max_complexity: ranges.max_complexity
+                }};
 
                 // --- Элементы DOM ---
                 const fontSizeInput = document.getElementById('fontSizeInput');
@@ -181,7 +230,7 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                 const signalHeatmapBar = document.getElementById('signalHeatmapBar');
                 const textCells = document.querySelectorAll('td.text-cell');
                 const semanticCells = document.querySelectorAll('td.semantic-cell');
-
+                
                 // --- Вспомогательные функции JS ---
                 const hexRegex = /^#?([a-f\d]{{2}})([a-f\d]{{2}})([a-f\d]{{2}})$/i;
                 function hexToRgb(hex) {{
@@ -222,13 +271,13 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                      const numParagraphs = paragraphData.length;
 
                      if (numParagraphs === 1) {{
-                        const normalizedSignal = normalizeValue(paragraphData[0].signal, ranges.min_signal, ranges.max_signal);
+                        const normalizedSignal = normalizeValue(paragraphData[0].signal, currentRanges.min_signal, currentRanges.max_signal);
                         const color = interpolateColor(normalizedSignal, currentColors.signal_min, currentColors.signal_max);
                         gradientStops.push(`${{color}} 0%`);
                         gradientStops.push(`${{color}} 100%`);
                      }} else {{
                          paragraphData.forEach((data, index) => {{
-                            const normalizedSignal = normalizeValue(data.signal, ranges.min_signal, ranges.max_signal);
+                            const normalizedSignal = normalizeValue(data.signal, currentRanges.min_signal, currentRanges.max_signal);
                             const color = interpolateColor(normalizedSignal, currentColors.signal_min, currentColors.signal_max);
                             const startPercent = (index / numParagraphs) * 100;
                             const endPercent = ((index + 1) / numParagraphs) * 100;
@@ -248,17 +297,17 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                     textCells.forEach((cell, index) => {{
                         if (index < paragraphData.length) {{
                             const data = paragraphData[index];
-                            const normalizedSignal = normalizeValue(data.signal, ranges.min_signal, ranges.max_signal);
+                            const normalizedSignal = normalizeValue(data.signal, currentRanges.min_signal, currentRanges.max_signal);
                             cell.style.backgroundColor = interpolateColor(normalizedSignal, currentColors.signal_min, currentColors.signal_max);
-                            const normalizedComplexity = normalizeValue(data.complexity, ranges.min_complexity, ranges.max_complexity);
+                            const normalizedComplexity = normalizeValue(data.complexity, currentRanges.min_complexity, currentRanges.max_complexity);
                             cell.style.color = interpolateColor(normalizedComplexity, currentColors.complexity_min, currentColors.complexity_max);
-                            cell.style.fontSize = currentFontSize + 'px';
+                            cell.style.fontSize = currentFontSize + 'pt';
                         }}
                     }});
                     
                     semanticCells.forEach((cell, index) => {{
                          if (index < paragraphData.length) {{
-                             cell.style.fontSize = Math.round(currentFontSize * 0.87) + 'px';
+                             cell.style.fontSize = Math.round(currentFontSize * 0.87) + 'pt';
                          }}
                     }});
                     
@@ -282,7 +331,7 @@ def create_styled_report(df: pd.DataFrame, output_html_path: str, topic: str):
                     currentColors.signal_max = event.target.value;
                     updateTableStyles();
                 }});
-                 complexityMinColorInput.addEventListener('input', (event) => {{
+                complexityMinColorInput.addEventListener('input', (event) => {{
                     currentColors.complexity_min = event.target.value;
                     updateTableStyles();
                 }});

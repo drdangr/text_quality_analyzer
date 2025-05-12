@@ -10,3 +10,4 @@ scikit-learn
 # Werkzeug # Убрано, зависимость Flask
 matplotlib
 transformers[torch] # Добавим [torch] для гарантии установки нужных зависимостей
+streamlit
