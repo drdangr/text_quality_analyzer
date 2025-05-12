@@ -8,6 +8,7 @@ import logging
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np # Не использовался явно, но может быть нужен зависимостям
+import time # Добавляем импорт time
 # from flask import Flask, request, render_template_string, redirect, url_for, flash, session # Убрано
 # import io # To read file content from upload # Убрано
 
@@ -101,11 +102,16 @@ def run_analysis(input_filepath, topic):
             modules_failed.append(f"Читаемость: {e}")
 
         logging.info("Анализ сигнальности...")
+        start_time_signal = time.time() # Замеряем время начала
         try:
             df = signal_strength.analyze_signal_strength_batch(df, topic)
-            logging.info("Модуль сигнальности успешно отработал.")
+            end_time_signal = time.time() # Замеряем время окончания
+            duration_signal = end_time_signal - start_time_signal
+            logging.info(f"Модуль сигнальности успешно отработал за {duration_signal:.2f} секунд.")
         except Exception as e:
-            logging.error(f"Ошибка в модуле сигнальности: {e}", exc_info=True)
+            end_time_signal = time.time() # Замеряем время окончания даже при ошибке
+            duration_signal = end_time_signal - start_time_signal
+            logging.error(f"Ошибка в модуле сигнальности (время выполнения: {duration_signal:.2f} сек): {e}", exc_info=True)
             df['signal_strength'] = pd.NA
             modules_failed.append(f"Сигнальность: {e}")
 
