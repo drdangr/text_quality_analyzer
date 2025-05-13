@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "session_id": "29eced98-d969-4963-85ff-7757e578a339",
+    "topic": "Основные концепции обработки естественного языка",
+    "export_timestamp_unix": 1747108554,
+    "export_timestamp_iso": "2025-05-13T03:55:54+00:00",
+    "paragraph_count": 3
+  },
+  "paragraphs": [
+    {
+      "id": 0,
+      "text": "Это новый обновленный текст для первого абзаца.",
+      "metrics": {
+        "lix": 35.571,
+        "smog": 13.024,
+        "complexity": 0.445,
+        "signal_strength": 0.801,
+        "semantic_function": "шум",
+        "semantic_method": "api",
+        "semantic_error": null
+      }
+    },
+    {
+      "id": 1,
+      "text": "Токенизация это процесс разбиения текста на мелкие части, называемые токенами. Это помогает в анализе.",
+      "metrics": {
+        "lix": 60.346,
+        "smog": 13.817,
+        "complexity": 0.754,
+        "signal_strength": 0.8,
+        "semantic_function": "раскрытие темы",
+        "semantic_method": "api",
+        "semantic_error": null
+      }
+    },
+    {
+      "id": 2,
+      "text": "Чанкинг делит большие тексты на части поменьше. Это нужно для моделей с лимитом токенов.",
+      "metrics": {
+        "lix": 52.654,
+        "smog": 12.162,
+        "complexity": 0.658,
+        "signal_strength": 0.802,
+        "semantic_function": "раскрытие темы",
+        "semantic_method": "api",
+        "semantic_error": null
+      }
+    }
+  ]
+}

@@ -8,13 +8,12 @@ from rusenttokenize import ru_sent_tokenize # Добавляем импорт
 import logging
 import pandas as pd # Добавляем pandas
 
+# Получаем логгер для этого модуля (лучше делать так, чем logging.error и т.д. напрямую)
+logger = logging.getLogger(__name__)
+
 # Определяем шкалы здесь, чтобы они были доступны всем функциям
 SCALE_LIX = (0, 80)
 SCALE_SMOG = (3, 20)
-
-def split_into_paragraphs(text):
-    # Разделение текста по пустым строкам
-    return [p.strip() for p in text.split("\n\n") if p.strip()]
 
 def normalize_metric(value, min_val, max_val):
     """Нормализует значение по заданной шкале, обрезая выходы за границы."""
@@ -43,22 +42,16 @@ def russian_smog_index(text):
     Возвращает кортеж (smog_value, is_valid).
     is_valid = True, если в тексте >= 3 предложений.
     """
-    if not text:
+    if not text or pd.isna(text):
         return None, False
-
-    # 1. Разбиваем на предложения с помощью rusenttokenize
     try:
         sentences = ru_sent_tokenize(text)
     except Exception as e:
-        print(f"Error tokenizing sentences with rusenttokenize: {e}")
-        # Можно вернуться к простому сплиту как fallback?
-        # sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
-        return None, False # Пока просто возвращаем ошибку
+        logger.warning(f"Ошибка токенизации предложений (rusenttokenize) для SMOG: {e}. Текст: '{str(text)[:50]}...'")
+        return None, False
 
     num_sentences = len(sentences)
     is_valid = num_sentences >= 3
-
-    # Если предложений меньше 3, сам индекс считать невалидным, но можем посчитать для информации
     if num_sentences == 0:
         return None, False
 
@@ -84,23 +77,18 @@ def russian_smog_index(text):
         smog_raw = polysyllable_count * (30 / num_sentences)
         smog = 1.043 * math.sqrt(smog_raw) + 3.1291
         return round(smog, 3), is_valid
-    except ValueError: # На случай отрицательного значения под корнем (не должно быть)
-        print(f"ValueError during SMOG calculation (sqrt negative?). Polysyllables: {polysyllable_count}, Sentences: {num_sentences}")
+    except (ValueError, ZeroDivisionError) as e: 
+        logger.warning(f"Ошибка вычисления SMOG (polysyllables: {polysyllable_count}, sentences: {num_sentences}): {e}. Текст: '{str(text)[:50]}...'")
         return None, is_valid
-    except ZeroDivisionError:
-         print(f"ZeroDivisionError during SMOG calculation. Should not happen here.")
-         return None, is_valid
 
 def russian_lix_index(text):
     """Расчитывает индекс LIX для русского текста по формуле из документации."""
-    if not text:
+    if not text or pd.isna(text):
         return None
-
-    # 1. Разбиваем на предложения (используем rusenttokenize)
     try:
         sentences = ru_sent_tokenize(text)
     except Exception as e:
-        print(f"Error tokenizing sentences with rusenttokenize for LIX: {e}")
+        logger.warning(f"Ошибка токенизации предложений (rusenttokenize) для LIX: {e}. Текст: '{str(text)[:50]}...'")
         return None
 
     num_sentences = len(sentences)
@@ -122,18 +110,8 @@ def russian_lix_index(text):
         lix = (num_words / num_sentences) + 100 * (num_long_words / num_words)
         return round(lix, 3)
     except ZeroDivisionError:
+        logger.warning(f"Ошибка вычисления LIX (деление на ноль). Слов: {num_words}, Предложений: {num_sentences}. Текст: '{str(text)[:50]}...'")
         return None
-
-def split_into_sentences_ru(text):
-    """Разбивает текст на предложения с помощью rusenttokenize."""
-    try:
-        return ru_sent_tokenize(text)
-    except Exception as e:
-        logging.error(f"Ошибка токенизации предложений: {e}")
-        # Простой fallback
-        sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
-        logging.warning("Использован fallback для разбиения на предложения.")
-        return sentences
 
 def normalize_score(score, min_val, max_val):
     """Нормализует значение по заданной шкале [0, 1], обрезая выходы за границы.
@@ -164,73 +142,109 @@ def calculate_complexity(lix, smog, smog_valid):
     # Исправляем проверку: используем len() для списка
     if len(valid_scores) > 0:
         # Считаем среднее только по валидным значениям
-        return round(np.mean(valid_scores), 3)
+        return round(np.mean(valid_scores).item(), 3) # .item() для преобразования в Python float
     else:
         # Если обе метрики NaN, возвращаем NaN
         return np.nan
 
-def analyze_readability_batch(df: pd.DataFrame) -> pd.DataFrame:
-    """Рассчитывает метрики читаемости для списка параграфов во входном DataFrame.
+def analyze_readability_batch(df: pd.DataFrame, update_only: bool = False) -> pd.DataFrame:
+    """Рассчитывает метрики читаемости для параграфов во входном DataFrame.
 
     Args:
         df: pandas.DataFrame с обязательной колонкой 'text'.
+        update_only: Если True, функция вернет DataFrame, содержащий только 
+                     обработанные строки с новыми/обновленными метриками. 
+                     Если False (по умолчанию), вернет копию всего входного 
+                     DataFrame с добавленными/обновленными метриками.
 
     Returns:
-        pandas.DataFrame с добавленными колонками 
-        'lix', 'smog', 'complexity'.
+        pandas.DataFrame с колонками 'lix', 'smog', 'complexity'.
     """
     if 'text' not in df.columns:
-        logging.error("Входной DataFrame для readability не содержит колонку 'text'.")
-        # Возвращаем исходный df или добавляем пустые колонки?
-        # Лучше добавить пустые, чтобы не сломать дальнейший пайплайн
-        df['lix'] = pd.NA
-        df['smog'] = pd.NA
-        df['complexity'] = pd.NA
-        return df
+        logger.error("Входной DataFrame для readability не содержит колонку 'text'.")
+        # В зависимости от update_only, возвращаем либо пустой DF с нужными колонками, либо исходный с пустыми колонками
+        empty_metrics_df = pd.DataFrame(columns=['lix', 'smog', 'complexity'])
+        if update_only:
+            # Для update_only, если нет 'text', нечего обновлять, возвращаем пустой DF с колонками метрик
+            # или можно вернуть df.iloc[0:0] скопировав колонки из df и добавив метрики?
+            # Безопаснее вернуть DataFrame только с колонками метрик, чтобы не смешивать.
+            # Оркестратор ожидает метрики.
+            # Если df был пуст (df.iloc[[idx]]), он будет пуст и тут.
+            return df.assign(lix=pd.NA, smog=pd.NA, complexity=pd.NA) if not df.empty else empty_metrics_df
+        else:
+            # Для полного анализа, добавляем пустые колонки к копии исходного df
+            result_df = df.copy()
+            result_df['lix'] = pd.NA
+            result_df['smog'] = pd.NA
+            result_df['complexity'] = pd.NA
+            return result_df
         
-    paragraph_texts = df['text'].tolist()
-    num_paragraphs = len(paragraph_texts)
-    results_lix = [np.nan] * num_paragraphs
-    results_smog = [np.nan] * num_paragraphs
-    results_complexity = [np.nan] * num_paragraphs
+    # Создаем копию для работы, чтобы не изменять оригинал, если update_only=False
+    # Если update_only=True, мы все равно создаем копию, чтобы вернуть только нужные строки/колонки.
+    # Входной df может быть срезом (одна строка для инкрементального), 
+    # и мы хотим вернуть такой же срез, но с метриками.
+    # Поэтому работаем с result_df, который является копией входного df.
+    result_df = df.copy() 
 
-    for i, text in enumerate(paragraph_texts):
-        if not text or pd.isna(text): # Пропускаем пустые или NaN параграфы
-            logging.debug(f"Параграф {i+1} пуст или NaN, пропуск расчета читаемости.")
+    # Инициализируем колонки метрик в result_df, если их нет
+    for col in ['lix', 'smog', 'complexity']:
+        if col not in result_df.columns:
+            result_df[col] = pd.NA
+
+    texts_to_process = result_df['text'].tolist()
+    indices_to_process = result_df.index.tolist() # Сохраняем исходные индексы
+
+    # Временные списки для результатов этого батча (по индексам из result_df)
+    lix_values = pd.Series([np.nan] * len(texts_to_process), index=indices_to_process, dtype=float)
+    smog_values = pd.Series([np.nan] * len(texts_to_process), index=indices_to_process, dtype=float)
+    complexity_values = pd.Series([np.nan] * len(texts_to_process), index=indices_to_process, dtype=float)
+
+    for i, original_idx in enumerate(indices_to_process):
+        text = texts_to_process[i]
+        
+        if not text or pd.isna(text):
+            logger.debug(f"Параграф с индексом {original_idx} пуст или NaN, пропуск расчета читаемости.")
             continue
         
+        current_lix = np.nan
+        current_smog = np.nan
         smog_is_valid = False
-        lix_value = np.nan
-        smog_value = np.nan
-        complexity_value = np.nan
+        current_complexity = np.nan
 
         try:
-            lix_value = russian_lix_index(text)
+            current_lix = russian_lix_index(text)
         except Exception as e:
-            logging.warning(f"Ошибка расчета LIX для параграфа {i+1}: {e}. Текст: '{str(text)[:50]}...'")
+            logger.warning(f"Ошибка расчета LIX для параграфа (индекс {original_idx}): {e}. Текст: '{str(text)[:50]}...'")
 
         try:
-            smog_value, smog_is_valid = russian_smog_index(text)
-            if smog_value is None:
-                smog_value = np.nan 
+            current_smog, smog_is_valid = russian_smog_index(text)
+            if current_smog is None: # russian_smog_index может вернуть None
+                current_smog = np.nan 
         except Exception as e:
-            logging.info(f"Не удалось рассчитать SMOG для параграфа {i+1}: {e}. Текст: '{str(text)[:50]}...'")
+            logger.warning(f"Ошибка расчета SMOG для параграфа (индекс {original_idx}): {e}. Текст: '{str(text)[:50]}...'")
 
         try:
-            complexity_value = calculate_complexity(lix_value, smog_value, smog_is_valid)
+            current_complexity = calculate_complexity(current_lix, current_smog, smog_is_valid)
         except Exception as e:
-            logging.warning(f"Ошибка расчета Complexity для параграфа {i+1}: {e}")
+            logger.warning(f"Ошибка расчета Complexity для параграфа (индекс {original_idx}): {e}")
 
-        # Записываем результаты в списки
-        results_lix[i] = round(lix_value, 3) if not pd.isna(lix_value) else np.nan
-        results_smog[i] = round(smog_value, 3) if not pd.isna(smog_value) else np.nan
-        results_complexity[i] = round(complexity_value, 3) if not pd.isna(complexity_value) else np.nan
+        lix_values.loc[original_idx] = round(current_lix, 3) if not pd.isna(current_lix) else np.nan
+        smog_values.loc[original_idx] = round(current_smog, 3) if not pd.isna(current_smog) else np.nan
+        complexity_values.loc[original_idx] = round(current_complexity, 3) if not pd.isna(current_complexity) else np.nan
         
-        logging.debug(f"Параграф {i+1}: LIX={results_lix[i]}, SMOG={results_smog[i]}, Complexity={results_complexity[i]}")
+        logger.debug(f"Параграф (индекс {original_idx}): LIX={lix_values.loc[original_idx]}, SMOG={smog_values.loc[original_idx]}, Complexity={complexity_values.loc[original_idx]}")
 
-    # Добавляем результаты как новые колонки к исходному DataFrame
-    df['lix'] = results_lix
-    df['smog'] = results_smog
-    df['complexity'] = results_complexity
+    # Обновляем/добавляем колонки в result_df
+    result_df['lix'] = lix_values
+    result_df['smog'] = smog_values
+    result_df['complexity'] = complexity_values
     
-    return df # Возвращаем обновленный DataFrame
+    if update_only:
+        # Возвращаем DataFrame, содержащий только те строки, что были на входе (result_df)
+        # но только с нужными колонками (исходные + метрики)
+        # Если исходный df имел другие колонки, они сохранятся в result_df.
+        return result_df 
+    else:
+        # Для полного анализа, мы уже работали с копией df (result_df), так что просто возвращаем ее.
+        # Это гарантирует, что если df имел другие колонки, они сохранятся.
+        return result_df

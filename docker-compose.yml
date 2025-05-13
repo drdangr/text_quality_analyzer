@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile # Указываем наш Dockerfile
+    ports:
+      - "8000:8000" # Проброс порта FastAPI
+    volumes:
+      - ./:/app   # Монтируем текущую директорию в /app для разработки с reload
+                  # В продакшене это можно убрать, если код копируется в образ через COPY .
+    env_file:
+      - .env      # Используем переменные окружения из .env файла
+    depends_on:
+      - redis     # Бэкенд зависит от Redis
+    # Конфигурация для доступа к GPU (если NVIDIA Container Toolkit установлен на хосте)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # или 'all' для всех доступных GPU
+              capabilities: [gpu]
+    # Команда для разработки с --reload. Для продакшена уберите --reload.
+    # CMD из Dockerfile будет использован, если command здесь не указан.
+    # Если мы хотим использовать uvicorn с reload здесь, CMD в Dockerfile должен быть закомментирован или удален.
+    # Оставим CMD в Dockerfile, а здесь закомментируем command для более продакшн-подобного поведения по умолчанию.
+    # command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload 
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine # Используем официальный образ Redis
+    ports:
+      - "6379:6379"   # Стандартный порт Redis
+    volumes:
+      - redis_data:/data # Сохраняем данные Redis в volume
+    restart: unless-stopped
+    # command: redis-server --appendonly yes # Можно добавить, если нужна AOF персистентность
+
+volumes:
+  redis_data: # Определяем именованный volume для Redis 

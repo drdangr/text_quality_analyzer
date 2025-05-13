@@ -1,13 +1,27 @@
-pandas
-numpy
-python-dotenv
-openai
-# tiktoken # Раскомментируем и добавим protobuf ниже
-tiktoken
-protobuf # Добавлено для xlm-roberta-large-xnli
-scikit-learn
-# Flask # Убрано
-# Werkzeug # Убрано, зависимость Flask
-matplotlib
-transformers[torch] # Добавим [torch] для гарантии установки нужных зависимостей
-streamlit
+# FastAPI and Uvicorn
+fastapi>=0.100.0,<0.112.0 # Указываем совместимый диапазон
+uvicorn[standard]>=0.20.0,<0.30.0
+
+# Pydantic and Settings
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+python-dotenv>=1.0.0,<2.0.0
+
+# Data Handling & ML
+pandas>=1.5,<2.3
+numpy>=1.20,<2.0
+torch>=2.0.0 # Пользователь должен установить CPU или CUDA версию по необходимости
+sentence-transformers>=2.2.0,<3.0.0
+
+# Text Analysis specific
+textstat>=0.7.0,<0.8.0
+rusenttokenize>=0.0.5,<0.1.0
+# scikit-learn опционально, если требуется для textstat или других модулей
+# scikit-learn>=1.0.0,<1.5.0 
+
+# API Clients
+openai>=1.0.0,<2.0.0
+redis>=4.0.0,<6.0.0
+
+# Logging & Async (обычно встроены или идут с FastAPI/Uvicorn, но можно указать)
+# httpx # (если нужен для async HTTP запросов где-то еще, OpenAI клиент использует свой)
