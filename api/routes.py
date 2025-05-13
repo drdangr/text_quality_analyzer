@@ -132,6 +132,30 @@ async def get_analysis_endpoint(
         logger.error(f"Критическая ошибка в эндпоинте /analysis/{session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error retrieving analysis: {e}")
 
+@router.post("/analysis/{session_id}/refresh-semantics", response_model=AnalysisResponse, summary="Обновить семантический анализ для сессии")
+async def refresh_semantic_analysis_endpoint(
+    session_id: str,
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Пересчитывает семантический анализ для всех абзацев в указанной сессии, 
+    используя текущий текст абзацев (включая все предыдущие редактирования).
+    Другие метрики (читаемость, сигнальность) НЕ пересчитываются этим эндпоинтом.
+    Возвращает полный обновленный результат анализа для сессии.
+    """
+    logger.info(f"API /analysis/{session_id}/refresh-semantics вызван.")
+    try:
+        updated_analysis_result = await orchestrator.refresh_full_semantic_analysis(session_id)
+        if updated_analysis_result is None:
+            logger.warning(f"Не удалось обновить семантику для сессии {session_id} (сессия не найдена или произошла ошибка в оркестраторе).")
+            raise HTTPException(status_code=404, detail=f"Failed to refresh semantics for session_id '{session_id}'. Session not found or error during refresh.")
+        return updated_analysis_result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте /analysis/{session_id}/refresh-semantics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during semantic refresh: {e}")
+
 @router.get("/export/{session_id}") # response_model здесь не нужен, т.к. возвращаем FileResponse
 async def export_analysis_endpoint(
     session_id: str,

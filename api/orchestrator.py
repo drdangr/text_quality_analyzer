@@ -205,6 +205,59 @@ class AnalysisOrchestrator:
             return None
         return self._format_analysis_result(analysis_data["df"], analysis_data["topic"], session_id)
 
+    async def refresh_full_semantic_analysis(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Пересчитывает семантический анализ для всех абзацев существующей сессии.
+        Метрики читаемости и сигнальности НЕ пересчитываются.
+        """
+        logger.info(f"[Orchestrator] Запрос на полное обновление семантики для сессии {session_id}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для обновления семантики.")
+            return None
+            
+        current_df = analysis_data["df"]
+        topic = analysis_data["topic"]
+
+        if current_df.empty:
+            logger.info(f"[Orchestrator] DataFrame для сессии {session_id} пуст. Обновление семантики не требуется.")
+            # Возвращаем текущие данные, так как нечего анализировать
+            return self._format_analysis_result(current_df, topic, session_id)
+
+        # Запускаем только семантический анализ для всех абзацев
+        # Функция analyze_semantic_function_batch должна вернуть DataFrame
+        # с теми же индексами, что и current_df, но с обновленными семантическими колонками.
+        logger.debug(f"[Orchestrator] Вызов _run_semantic_function_async для сессии {session_id} ({len(current_df)} абзацев)")
+        
+        # Важно: semantic_function.analyze_semantic_function_batch ожидает DataFrame с колонкой 'text'.
+        # Мы передаем current_df.copy(), чтобы избежать неожиданных модификаций оригинала,
+        # хотя наша текущая реализация semantic_function сама делает .copy().
+        semantic_results_df = await self._run_semantic_function_async(current_df.copy(), topic)
+        # _run_semantic_function_async уже содержит вызов semantic_function.analyze_semantic_function_batch
+        # и он должен вернуть DataFrame с обновленными колонками `semantic_function`, `semantic_method`, `semantic_error`
+        # и теми же индексами, что и current_df.
+
+        if semantic_results_df is not None and not semantic_results_df.empty:
+            # Обновляем только семантические колонки в основном DataFrame сессии
+            cols_to_update = ['semantic_function', 'semantic_method', 'semantic_error']
+            for col in cols_to_update:
+                if col in semantic_results_df:
+                    current_df[col] = semantic_results_df[col]
+                else:
+                    # Если колонка отсутствует в результатах (маловероятно для корректной работы semantic_function),
+                    # можно ее инициализировать с NA или оставить как есть.
+                    logger.warning(f"[Orchestrator] Колонка '{col}' отсутствует в результатах семантического анализа для сессии {session_id}.")
+                    current_df[col] = None # или pd.NA, в зависимости от желаемого поведения
+            
+            self.session_store.save_analysis(session_id, current_df, topic)
+            logger.info(f"[Orchestrator] Семантика для сессии {session_id} успешно обновлена и сохранена.")
+            return self._format_analysis_result(current_df, topic, session_id)
+        else:
+            logger.error(f"[Orchestrator] Модуль семантического анализа не вернул результатов для сессии {session_id}. Сессия не обновлена.")
+            # Возвращаем старые данные или None/ошибку?
+            # Пока вернем старые данные, но с логом об ошибке обновления.
+            return self._format_analysis_result(current_df, topic, session_id) # Возвращаем то, что было
+
     def _format_analysis_result(self, df: pd.DataFrame, topic: str, session_id: str) -> Dict[str, Any]:
         """Форматирует полный результат анализа для API-ответа."""
         avg_complexity_val = df['complexity'].mean() if 'complexity' in df.columns and not df['complexity'].empty else None
