@@ -9,6 +9,7 @@ interface CardProps {
   minComplexity: number;
   maxComplexity: number;
   fontSize: string;
+  fontFamily: string;
   signalMinColor: string;
   signalMaxColor: string;
   complexityMinColor: string;
@@ -43,6 +44,7 @@ const Card: React.FC<CardProps> = ({
   minComplexity,
   maxComplexity,
   fontSize,
+  fontFamily,
   signalMinColor,
   signalMaxColor,
   complexityMinColor,
@@ -136,6 +138,7 @@ const Card: React.FC<CardProps> = ({
   const contentContainerStyle: React.CSSProperties = { 
     padding: '1px 15px',
     fontSize: fontSize,
+    fontFamily: fontFamily,
     color: paragraphTextColor, 
     // backgroundColor теперь устанавливается в cardWrapperStyle
   };
@@ -146,6 +149,7 @@ const Card: React.FC<CardProps> = ({
     padding: '3px 15px',
     borderBottom: '1px solid rgba(238, 238, 238, 0.7)',
     fontSize: `calc(${fontSize} * 0.75)`,
+    fontFamily: fontFamily,
     color: headerTextColor, // Используем фиксированный цвет для шапки
     textAlign: 'left' as const,
     display: 'flex',
@@ -163,11 +167,13 @@ const Card: React.FC<CardProps> = ({
     margin: '10px 0',
     padding: 0,
     minHeight: '20px',
+    fontFamily: fontFamily,
   };
 
   const buttonStyle: React.CSSProperties = {
     padding: '6px 12px',
     fontSize: `calc(${fontSize} * 0.75)`,
+    fontFamily: fontFamily,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     // Граница кнопки адаптируется к цвету текста на кнопке (editingControlsTextColor)
     border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.5)': 'rgba(0,0,0,0.2)'}`,
@@ -206,8 +212,8 @@ const Card: React.FC<CardProps> = ({
     width: '100%',
     padding: '10px',
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: '1.5',
-    fontFamily: 'inherit',
     border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.3)': 'rgba(0,0,0,0.1)'}`,
     borderRadius: '4px',
     boxSizing: 'border-box',
@@ -233,6 +239,7 @@ const Card: React.FC<CardProps> = ({
     borderRadius: '50%',
     cursor: 'pointer',
     fontSize: '16px',
+    fontFamily: fontFamily,
     color: '#333', // Кнопка слияния обычно на белом фоне между карточками
     zIndex: 25,
     boxShadow: '0 0 4px rgba(0,0,0,0.1)'
@@ -246,6 +253,7 @@ const Card: React.FC<CardProps> = ({
 
   const hintTextStyle: React.CSSProperties = {
     fontSize: `calc(${fontSize} * 0.75)`,
+    fontFamily: fontFamily,
     fontStyle: 'italic',
     opacity: 0.8,
     marginBottom: '10px',
@@ -260,6 +268,7 @@ const Card: React.FC<CardProps> = ({
     border: 'none',
     color: headerTextColor, // Кнопка удаления в шапке использует цвет текста шапки
     fontSize: `calc(${fontSize} * 1.3)`,
+    fontFamily: fontFamily,
     cursor: 'pointer',
     padding: '0px 2px',
     lineHeight: '1',

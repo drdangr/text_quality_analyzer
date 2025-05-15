@@ -13,6 +13,7 @@ const DEFAULT_SIGNAL_MIN_COLOR = "#FFFFFF";
 const DEFAULT_SIGNAL_MAX_COLOR = "#FFDB58"; 
 const DEFAULT_COMPLEXITY_MIN_COLOR = "#00FF00"; // Зеленый
 const DEFAULT_COMPLEXITY_MAX_COLOR = "#FF0000"; // Красный
+const DEFAULT_FONT_FAMILY = "Arial, sans-serif"; // Шрифт по умолчанию
 
 interface CardListProps {
   initialSession: AnalysisResponse;
@@ -36,6 +37,7 @@ const CardList: React.FC<CardListProps> = ({
   
   // Состояния для UI контролов (панель управления)
   const [fontSize, setFontSize] = useState<number>(12);
+  const [fontFamily, setFontFamily] = useState<string>(DEFAULT_FONT_FAMILY); // Новое состояние для гарнитуры
   const [signalMinColor, setSignalMinColor] = useState<string>(DEFAULT_SIGNAL_MIN_COLOR);
   const [signalMaxColor, setSignalMaxColor] = useState<string>(DEFAULT_SIGNAL_MAX_COLOR);
   const [complexityMinColor, setComplexityMinColor] = useState<string>(DEFAULT_COMPLEXITY_MIN_COLOR);
@@ -62,6 +64,10 @@ const CardList: React.FC<CardListProps> = ({
   const [isEditingTopic, setIsEditingTopic] = useState<boolean>(false);
   const [editingTopicText, setEditingTopicText] = useState<string>('');
   const [isSavingTopic, setIsSavingTopic] = useState<boolean>(false);
+
+  // Новое состояние для сворачиваемой панели
+  const [isControlPanelExpanded, setIsControlPanelExpanded] = useState<boolean>(false);
+  const controlPanelContentRef = useRef<HTMLDivElement>(null); // Ref для измерения высоты контента панели
 
   // Обновляем состояние, если изменилась initialSession (например, после сброса и нового анализа или рефреша семантики)
   useEffect(() => {
@@ -348,23 +354,70 @@ const CardList: React.FC<CardListProps> = ({
     }
   };
 
-  // Стили (можно вынести в CSS модули или styled-components)
-  const controlPanelStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '15px', marginBottom: '20px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '4px' };
+  // Стили для панели управления и ее элементов
+  const controlPanelContainerStyle: React.CSSProperties = {
+    // Общие стили для контейнера сворачиваемой панели
+    overflow: 'hidden',
+    transition: 'max-height 0.3s ease-in-out',
+    maxHeight: isControlPanelExpanded ? '1000px' : '40px', // 1000px для запаса, 40px для свернутого состояния
+    border: '1px solid #eee',
+    borderRadius: '4px',
+    marginBottom: '10px',
+    backgroundColor: '#f9f9f9' // Фон для всего блока, включая заголовок
+  };
+
+  const controlPanelHeaderStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 12px',
+    cursor: 'pointer',
+    borderBottom: isControlPanelExpanded ? '1px solid #ddd' : 'none',
+    backgroundColor: '#f0f0f0' // Немного другой фон для заголовка панели
+  };
+
+  const controlPanelToggleIconStyle: React.CSSProperties = {
+    fontSize: '1.2em',
+    marginRight: '10px',
+    transform: isControlPanelExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+    transition: 'transform 0.3s ease-in-out'
+  };
+  
+  const controlPanelActualControlsStyle: React.CSSProperties = { 
+    display: 'flex', 
+    flexWrap: 'wrap', 
+    gap: '15px', 
+    padding: '15px' 
+    // backgroundColor: '#f9f9f9', // Перенесено в controlPanelContainerStyle
+    // borderRadius: '4px' // Перенесено в controlPanelContainerStyle
+  };
+
   const controlGroupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
   const labelStyle: React.CSSProperties = { fontSize: '0.8rem', color: '#555' };
   const inputStyle: React.CSSProperties = { padding: '5px', borderRadius: '3px', border: '1px solid #ccc', width: '80px' };
   const colorInputStyle: React.CSSProperties = { ...inputStyle, width: '50px', height: '25px', padding: '2px' }; 
-  const selectStyle: React.CSSProperties = { padding: '5px', borderRadius: '3px', border: '1px solid #ccc' };
+  const selectStyle: React.CSSProperties = { padding: '5px', borderRadius: '3px', border: '1px solid #ccc', minWidth: '120px' }; // Добавил minWidth для селекта
   
-  const summaryTextStyle: React.CSSProperties = {
-    marginBottom: '10px', 
-    fontSize: '0.9rem', 
-    color: '#666',
-    padding: '8px 12px',
-    backgroundColor: '#f7f7f7',
+  const summaryAndSearchRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '10px 15px',
+    backgroundColor: '#f0f0f0',
     borderRadius: '4px',
-    border: '1px solid #eee',
-    textAlign: 'center'
+    marginTop: '10px',
+    fontSize: '0.9rem',
+    color: '#555'
+  };
+
+  const summaryStatsStyle: React.CSSProperties = {
+    flexGrow: 1,
+    textAlign: 'left'
+  };
+
+  const searchInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    width: '200px',
+    marginLeft: '15px'
   };
 
   const formatMetric = (value: number | null | undefined): string => {
@@ -471,48 +524,75 @@ const CardList: React.FC<CardListProps> = ({
         </div>
       </div>
 
-      {/* Панель управления */} 
+      {/* Контейнер для панели управления, тепловой карты и строки статистики */}
       <div style={{
         position: 'sticky',
-        top: 60,
+        top: 60, 
         zIndex: 49,
         background: '#fff',
         boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
         marginBottom: '20px',
-        padding: '15px',
         borderRadius: '4px',
+        padding: '15px' // Добавляем общий padding здесь
       }}>
-        <div style={controlPanelStyle}>
-          {/* Размер шрифта */}
-          <div style={controlGroupStyle}>
-            <label htmlFor="fontSizeInput" style={labelStyle}>Размер шрифта (pt):</label>
-            <input id="fontSizeInput" type="number" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{...inputStyle, width: '60px'}} />
+        {/* Сворачиваемая панель управления */}
+        <div style={controlPanelContainerStyle}>
+          <div 
+            style={controlPanelHeaderStyle} 
+            onClick={() => setIsControlPanelExpanded(!isControlPanelExpanded)}
+            role="button"
+            tabIndex={0}
+            onKeyPress={(e) => e.key === 'Enter' && setIsControlPanelExpanded(!isControlPanelExpanded)}
+          >
+            <span style={controlPanelToggleIconStyle}>{isControlPanelExpanded ? '˅' : '>'}</span>
+            <span>Управление шрифтом и цветами</span>
           </div>
-          {/* Сигнал (цвета) */}
-          <div style={controlGroupStyle}>
-            <label style={labelStyle}>Настройка цветов для Сигнала</label>
-            <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
-              Мин: <input type="color" value={signalMinColor} onChange={e => setSignalMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сигнала" />
-              Макс: <input type="color" value={signalMaxColor} onChange={e => setSignalMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сигнала" />
+          {/* Сам блок с контролами будет анимироваться через max-height контейнера */}
+          {isControlPanelExpanded && (
+             <div style={controlPanelActualControlsStyle} ref={controlPanelContentRef}>
+              {/* Контролы размера шрифта, цветов сигнала и сложности */}
+              <div style={controlGroupStyle}>
+                <label htmlFor="fontSizeInput" style={labelStyle}>Размер шрифта (pt):</label>
+                <input id="fontSizeInput" type="number" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{...inputStyle, width: '60px'}} />
+              </div>
+              <div style={controlGroupStyle}>
+                <label htmlFor="fontFamilySelect" style={labelStyle}>Гарнитура шрифта:</label>
+                <select 
+                  id="fontFamilySelect" 
+                  value={fontFamily} 
+                  onChange={(e) => setFontFamily(e.target.value)} 
+                  style={selectStyle}
+                >
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="Verdana, sans-serif">Verdana</option>
+                  <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                  <option value="'Courier New', Courier, monospace">Courier New</option>
+                  <option value="'Lucida Console', Monaco, monospace">Lucida Console</option>
+                  <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                  <option value="'Palatino Linotype', 'Book Antiqua', Palatino, serif">Palatino</option>
+                </select>
+              </div>
+              <div style={controlGroupStyle}>
+                <label style={labelStyle}>Настройка цветов для Сигнала</label>
+                <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
+                  Мин: <input type="color" value={signalMinColor} onChange={e => setSignalMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сигнала" />
+                  Макс: <input type="color" value={signalMaxColor} onChange={e => setSignalMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сигнала" />
+                </div>
+              </div>
+              <div style={controlGroupStyle}>
+                <label style={labelStyle}>Настройка цветов для Сложности</label>
+                <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
+                  Мин: <input type="color" value={complexityMinColor} onChange={e => setComplexityMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сложности" />
+                  Макс: <input type="color" value={complexityMaxColor} onChange={e => setComplexityMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сложности" />
+                </div>
+              </div>
             </div>
-          </div>
-          {/* Сложность (цвета) */}
-          <div style={controlGroupStyle}>
-            <label style={labelStyle}>Настройка цветов для Сложности</label>
-            <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
-              Мин: <input type="color" value={complexityMinColor} onChange={e => setComplexityMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сложности" />
-              Макс: <input type="color" value={complexityMaxColor} onChange={e => setComplexityMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сложности" />
-            </div>
-          </div>
-          {/* Поиск по тексту */}
-          <div style={controlGroupStyle}>
-            <label htmlFor="searchQuery" style={labelStyle}>Поиск по тексту:</label>
-            <input id="searchQuery" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{...inputStyle, width: '150px'}} placeholder="Введите текст..." />
-          </div>
+          )}
         </div>
         
-        {/* Тепловая карта распределения Сигнал/Шум */}
-        <div style={{ margin: '15px 0 0 0' }}>
+        {/* Тепловая карта */}
+        <div style={{ marginTop: '15px'}}> {/* Отступ от панели управления сверху */}
           <div style={{ fontSize: '0.9rem', color: '#555', marginBottom: '5px' }}>
             Карта распределения соотношения Сигнал/Шум в документе (нажмите на блок для навигации):
           </div>
@@ -548,6 +628,23 @@ const CardList: React.FC<CardListProps> = ({
             )}
           </div>
         </div>
+        
+        {/* Строка для статистики и поиска */}
+        <div style={summaryAndSearchRowStyle}>
+          <span style={summaryStatsStyle}>
+            Сложность: <strong>{formatMetric(sessionData.metadata.avg_complexity)}</strong> | 
+            Сигнал/Шум: <strong>{formatMetric(sessionData.metadata.avg_signal_strength)}</strong> | 
+            Абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length}
+          </span>
+          <input 
+            id="searchQuerySticky" 
+            type="text" 
+            value={searchQuery} 
+            onChange={(e) => setSearchQuery(e.target.value)} 
+            style={searchInputStyle} 
+            placeholder="Поиск по тексту..." 
+          />
+        </div>
       </div>
 
       {currentError && (
@@ -556,12 +653,6 @@ const CardList: React.FC<CardListProps> = ({
         </div>
       )}
       
-      <div style={summaryTextStyle}>
-        Сложность текста: <strong>{formatMetric(sessionData.metadata.avg_complexity)}</strong> | 
-        Сигнал/Шум: <strong>{formatMetric(sessionData.metadata.avg_signal_strength)}</strong> | 
-        Показано абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length}
-      </div>
-
       <div ref={contentRef}>
         <DraggableCardList
           sessionData={sessionData}
@@ -574,6 +665,7 @@ const CardList: React.FC<CardListProps> = ({
           uiComplexityMin={uiComplexityMin}
           uiComplexityMax={uiComplexityMax}
           fontSize={`${fontSize}pt`}
+          fontFamily={fontFamily}
           signalMinColor={signalMinColor}
           signalMaxColor={signalMaxColor}
           complexityMinColor={complexityMinColor}

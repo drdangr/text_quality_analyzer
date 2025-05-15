@@ -27,6 +27,7 @@ interface SortableCardProps {
   minComplexity: number;
   maxComplexity: number;
   fontSize: string;
+  fontFamily: string;
   signalMinColor: string;
   signalMaxColor: string;
   complexityMinColor: string;
@@ -47,7 +48,7 @@ interface SortableCardProps {
   }>;
 }
 
-const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest, onSave, ...rest }) => {
+const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest, onSave, fontFamily, ...rest }) => {
   const {
     attributes,
     listeners,
@@ -76,7 +77,7 @@ const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest,
   return (
     <div ref={setCardRef} style={style} {...attributes}>
       <div style={{ position: 'relative', marginBottom: '1px' }}>
-        <Card paragraph={paragraph} onDeleteRequest={onDeleteRequest} onSave={onSave} {...rest} />
+        <Card paragraph={paragraph} onDeleteRequest={onDeleteRequest} onSave={onSave} fontFamily={fontFamily} {...rest} />
         
         {/* Невидимая область для перетаскивания, покрывающая верхний заголовок */}
         <div 
@@ -130,6 +131,7 @@ interface DraggableCardListProps {
   uiComplexityMin: number;
   uiComplexityMax: number;
   fontSize: string;
+  fontFamily: string;
   signalMinColor: string;
   signalMaxColor: string;
   complexityMinColor: string;
@@ -164,6 +166,7 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
   uiComplexityMin,
   uiComplexityMax,
   fontSize,
+  fontFamily,
   signalMinColor,
   signalMaxColor,
   complexityMinColor,
@@ -274,6 +277,7 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
               minComplexity={uiComplexityMin}
               maxComplexity={uiComplexityMax}
               fontSize={fontSize}
+              fontFamily={fontFamily}
               signalMinColor={signalMinColor}
               signalMaxColor={signalMaxColor}
               complexityMinColor={complexityMinColor}
