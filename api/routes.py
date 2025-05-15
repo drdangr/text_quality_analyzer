@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Body # Добавил Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Path # Добавлен Path
 from fastapi.responses import FileResponse # Для экспорта
 from typing import Optional, Any # Добавил Any
 import logging
@@ -7,6 +7,7 @@ import logging
 from api.models import (
     TextAnalysisRequest,
     ParagraphUpdateRequest,
+    ParagraphTextUpdateRequest, # <--- Добавлен импорт новой модели
     ParagraphData,
     AnalysisResponse,
     ParagraphsMergeRequest,
@@ -115,6 +116,31 @@ async def update_paragraph_endpoint(
         logger.error(f"Критическая ошибка в эндпоинте /update-paragraph: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during paragraph update: {e}")
 
+@router.post("/paragraph/update-text-and-restructure", response_model=AnalysisResponse)
+async def update_text_and_restructure_paragraph_endpoint(
+    request_data: ParagraphTextUpdateRequest = Body(...),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Обновляет текст указанного абзаца. 
+    Если текст пустой, абзац удаляется.
+    Если в тексте есть двойные переносы строк, абзац разделяется.
+    Возвращает полный обновленный AnalysisResponse.
+    """
+    logger.info(f"API /paragraph/update-text-and-restructure вызван. Session ID: {request_data.session_id}, Paragraph ID: {request_data.paragraph_id}")
+    try:
+        updated_session = await orchestrator.update_text_and_restructure_paragraph(
+            session_id=request_data.session_id,
+            paragraph_id_to_process=request_data.paragraph_id,
+            full_new_text=request_data.text
+        )
+        return updated_session
+    except HTTPException:
+        raise # Перебрасываем HTTP исключения из оркестратора (напр. 404)
+    except Exception as e:
+        logger.error(f"Критическая ошибка в /paragraph/update-text-and-restructure: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
+
 @router.get("/analysis/{session_id}", response_model=AnalysisResponse)
 async def get_analysis_endpoint(
     session_id: str,
@@ -197,13 +223,6 @@ async def merge_paragraphs_endpoint(
     request_data: ParagraphsMergeRequest = Body(...),
     orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
 ) -> AnalysisResponse:
-    """
-    Объединяет два абзаца в один в рамках существующей сессии анализа.
-    
-    - **session_id**: ID активной сессии анализа.
-    - **paragraph_id_1**: ID первого абзаца для слияния.
-    - **paragraph_id_2**: ID второго абзаца для слияния.
-    """
     logger.info(f"API /merge-paragraphs вызван. Session ID: {request_data.session_id}, Paragraph IDs: {request_data.paragraph_id_1}, {request_data.paragraph_id_2}")
     try:
         result = await orchestrator.merge_paragraphs(
@@ -226,13 +245,6 @@ async def split_paragraph_endpoint(
     request_data: ParagraphSplitRequest = Body(...),
     orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
 ) -> AnalysisResponse:
-    """
-    Разделяет один абзац на два в рамках существующей сессии анализа.
-    
-    - **session_id**: ID активной сессии анализа.
-    - **paragraph_id**: ID абзаца, который нужно разделить.
-    - **split_position**: Позиция в тексте абзаца, с которой будет начинаться второй абзац.
-    """
     logger.info(f"API /split-paragraph вызван. Session ID: {request_data.session_id}, Paragraph ID: {request_data.paragraph_id}, Split Position: {request_data.split_position}")
     try:
         updated_analysis = await orchestrator.split_paragraph(
@@ -255,12 +267,6 @@ async def reorder_paragraphs_endpoint(
     request_data: ParagraphsReorderRequest = Body(...),
     orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
 ) -> AnalysisResponse:
-    """
-    Изменяет порядок абзацев в сессии анализа.
-    
-    - **session_id**: ID активной сессии анализа.
-    - **new_order**: Новый порядок абзацев (список ID абзацев в новом порядке).
-    """
     logger.info(f"API /reorder-paragraphs вызван. Session ID: {request_data.session_id}")
     try:
         updated_analysis = await orchestrator.reorder_paragraphs(
@@ -282,12 +288,6 @@ async def update_topic_endpoint(
     request_data: UpdateTopicRequest = Body(...),
     orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
 ) -> AnalysisResponse:
-    """
-    Обновляет тему для указанной сессии анализа.
-    
-    - **session_id**: ID активной сессии анализа.
-    - **topic**: Новая тема анализа.
-    """
     logger.info(f"API /update-topic вызван. Session ID: {request_data.session_id}")
     try:
         updated_analysis = await orchestrator.update_topic(
@@ -303,3 +303,34 @@ async def update_topic_endpoint(
     except Exception as e:
         logger.error(f"Критическая ошибка в эндпоинте /update-topic: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during topic update: {e}")
+
+@router.delete(
+    "/paragraph/{session_id}/{paragraph_id_to_delete}",
+    response_model=AnalysisResponse,
+    summary="Удалить абзац из сессии",
+    tags=["Analysis"] 
+)
+async def delete_paragraph_endpoint(
+    session_id: str = Path(..., description="ID сессии анализа"),
+    paragraph_id_to_delete: int = Path(..., description="ID абзаца для удаления"),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Удаляет указанный абзац из сессии анализа.
+
+    - **session_id**: ID активной сессии анализа.
+    - **paragraph_id_to_delete**: ID абзаца, который необходимо удалить.
+    Возвращает обновленные данные всей сессии.
+    """
+    logger.info(f"API DELETE /paragraph/{session_id}/{paragraph_id_to_delete} вызван.")
+    try:
+        updated_session_data = await orchestrator.delete_paragraph_from_session(
+            session_id=session_id,
+            paragraph_id_to_delete=paragraph_id_to_delete
+        )
+        return updated_session_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте DELETE /paragraph/{session_id}/{paragraph_id_to_delete}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера при удалении абзаца: {e}")

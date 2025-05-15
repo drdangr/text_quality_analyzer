@@ -47,3 +47,10 @@ export interface UpdateParagraphRequest {
 
 // Ответ от /api/update-paragraph - это обновленный ParagraphData
 export type UpdateParagraphResponse = ParagraphData;
+
+// Новый тип для запроса на обновление текста абзаца с возможным разделением
+export interface ParagraphTextUpdateRequest {
+    session_id: string;
+    paragraph_id: number; // ID абзаца, который редактируется
+    text: string;         // Полный новый текст из поля редактирования (может быть пустым)
+}

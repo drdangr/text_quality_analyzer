@@ -2,7 +2,8 @@ import type {
     ParagraphData,
     AnalysisResponse, // Используем обновленное имя
     UpdateParagraphRequest,
-    UpdateParagraphResponse
+    UpdateParagraphResponse,
+    ParagraphTextUpdateRequest
 } from '../components/CardView/types';
 
 // ВРЕМЕННО ЖЕСТКО ЗАДАЕМ URL ДЛЯ ТЕСТИРОВАНИЯ
@@ -198,6 +199,47 @@ export async function updateTopic(
             session_id: sessionId,
             topic: newTopic
         }),
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
+// Удаление абзаца
+export async function deleteParagraph(
+    sessionId: string,
+    paragraphId: number
+): Promise<AnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/paragraph/${sessionId}/${paragraphId}`, {
+        method: 'DELETE',
+        headers: {
+            'Accept': 'application/json',
+        },
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
+// Обновление текста абзаца с возможным разделением или удалением
+export async function updateTextAndRestructureParagraph(
+    sessionId: string,
+    paragraphId: number,
+    newText: string
+): Promise<AnalysisResponse> {
+    const requestBody: ParagraphTextUpdateRequest = {
+        session_id: sessionId,
+        paragraph_id: paragraphId,
+        text: newText
+    };
+
+    const response = await fetch(`${API_BASE_URL}/paragraph/update-text-and-restructure`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
     });
 
     await handleResponseError(response);

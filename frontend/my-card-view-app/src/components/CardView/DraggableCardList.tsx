@@ -35,18 +35,19 @@ interface SortableCardProps {
   editingText: string;
   onEditingTextChange: (text: string) => void;
   onStartEditing: () => void;
-  onSave: () => void;
+  onSave: () => Promise<void>;
   onCancel: () => void;
   isSaving: boolean;
   isFirst: boolean;
   isLast: boolean;
   onMergeDown: () => void;
+  onDeleteRequest: (paragraphId: number) => void;
   paragraphRefs?: React.MutableRefObject<{
     [key: string]: HTMLDivElement | null;
   }>;
 }
 
-const SortableCard: React.FC<SortableCardProps> = ({ paragraph, ...rest }) => {
+const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest, onSave, ...rest }) => {
   const {
     attributes,
     listeners,
@@ -75,7 +76,7 @@ const SortableCard: React.FC<SortableCardProps> = ({ paragraph, ...rest }) => {
   return (
     <div ref={setCardRef} style={style} {...attributes}>
       <div style={{ position: 'relative', marginBottom: '1px' }}>
-        <Card paragraph={paragraph} {...rest} />
+        <Card paragraph={paragraph} onDeleteRequest={onDeleteRequest} onSave={onSave} {...rest} />
         
         {/* Невидимая область для перетаскивания, покрывающая верхний заголовок */}
         <div 
@@ -138,11 +139,12 @@ interface DraggableCardListProps {
   editingText: string;
   setEditingText: React.Dispatch<React.SetStateAction<string>>;
   handleStartEditing: (paragraph: ParagraphData) => void;
-  handleSaveWithSplit: () => Promise<void>;
+  handleSaveEditing: () => Promise<void>;
   handleCancelEditing: () => void;
   isSaving: boolean;
   // API callbacks for other operations
   handleMergeDown: (index: number) => Promise<void>;
+  onDeleteRequest: (paragraphId: number) => void;
   // Other props
   sortedAndFilteredParagraphs: ParagraphData[];
   // Ref для элементов карточек для скролла
@@ -170,10 +172,11 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
   editingText,
   setEditingText,
   handleStartEditing,
-  handleSaveWithSplit,
+  handleSaveEditing,
   handleCancelEditing,
   isSaving,
   handleMergeDown,
+  onDeleteRequest,
   sortedAndFilteredParagraphs,
   paragraphRefs,
 }) => {
@@ -279,12 +282,13 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
               editingText={editingParagraphId === p.id ? editingText : ''}
               onEditingTextChange={setEditingText}
               onStartEditing={() => handleStartEditing(p)}
-              onSave={handleSaveWithSplit}
+              onSave={handleSaveEditing}
               onCancel={handleCancelEditing}
               isSaving={isSaving}
               isFirst={index === 0}
               isLast={index === sortedAndFilteredParagraphs.length - 1}
               onMergeDown={() => handleMergeDown(index)}
+              onDeleteRequest={onDeleteRequest}
               paragraphRefs={paragraphRefs}
             />
           ))}

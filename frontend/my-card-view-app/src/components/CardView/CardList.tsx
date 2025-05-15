@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import Card from './Card';
 import DraggableCardList from './DraggableCardList';
 import type { ParagraphData, AnalysisResponse } from './types'; // Используем AnalysisResponse
-import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs, splitParagraph, fetchAnalysis, reorderParagraphs, updateTopic } from '../../api';
+import { updateTextAndRestructureParagraph, refreshFullSemanticAnalysis, mergeParagraphs, fetchAnalysis, reorderParagraphs, updateTopic, deleteParagraph } from '../../api';
 
 // Типы для сортировки и фильтрации
 type SortField = 'id' | 'signal_strength' | 'complexity' | 'semantic_function'; // id вместо paragraph_id
@@ -52,6 +52,7 @@ const CardList: React.FC<CardListProps> = ({
   const [currentError, setCurrentError] = useState<string | null>(null);
   const [isRefreshingSemantics, setIsRefreshingSemantics] = useState<boolean>(false);
   const [isMergingParagraphs, setIsMergingParagraphs] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Ref для параграфов, чтобы можно было скроллить к выбранному
   const paragraphRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
@@ -152,120 +153,24 @@ const CardList: React.FC<CardListProps> = ({
     setIsSaving(true);
     setCurrentError(null);
     try {
-      const updatedParagraph = await updateParagraph(
+      // Если текст пустой (после trim), бекенд обработает это как удаление.
+      // Никаких дополнительных подтверждений на фронтенде не требуется.
+      const updatedSession = await updateTextAndRestructureParagraph(
         sessionData.metadata.session_id,
-        editingParagraphId, // API ожидает paragraph_id, но у нас в ParagraphData это id
-        editingText
+        editingParagraphId,
+        editingText // Передаем текст как есть (пустой или непустой)
       );
-      // Обновляем локальный массив абзацев
-      setParagraphs(prev => prev.map(p => 
-        p.id === editingParagraphId 
-          ? updatedParagraph // API возвращает обновленный ParagraphData
-          : p
-      ));
+      
+      setSessionData(updatedSession);
+      setParagraphs(updatedSession.paragraphs);
       setEditingParagraphId(null);
       setEditingText('');
-      markSemanticsAsStale(); // Помечаем, что семантика больше не актуальна
-    } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : 'Ошибка при сохранении изменений';
-      setCurrentError(errorMsg);
-      console.error('Save error:', e);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      markSemanticsAsStale(); 
 
-  const handleSaveWithSplit = async () => {
-    if (editingParagraphId === null || !sessionData) return;
-    
-    setIsSaving(true);
-    setCurrentError(null);
-    
-    try {
-      // Проверяем, содержит ли текст двойные переносы строк
-      if (editingText.includes('\n\n')) {
-        // Разбиваем текст на абзацы по двойным переносам
-        const paragraphs = editingText.split('\n\n').filter(p => p.trim().length > 0);
-        
-        if (paragraphs.length > 1) {
-          // Сохраняем первый абзац в текущую карточку
-          await updateParagraph(
-            sessionData.metadata.session_id,
-            editingParagraphId,
-            paragraphs[0]
-          );
-          
-          // Получаем актуальную версию сессии
-          let updatedSession = await fetchAnalysis(sessionData.metadata.session_id);
-          
-          // Запрашиваем создание новых карточек через специальный эндпоинт
-          // Мы используем простой подход: для каждого дополнительного абзаца
-          // создаем новую карточку последовательно
-          
-          // Для каждого оставшегося абзаца
-          for (let i = 1; i < paragraphs.length; i++) {
-            try {
-              // Создаем новую карточку через API - сначала вставляем пустой текст
-              const tempParaIndex = editingParagraphId + i - 1;
-              const tempParaId = updatedSession.paragraphs[tempParaIndex].id;
-              
-              // Обновляем временно параграф, добавляя разделитель и пустой текст
-              await updateParagraph(
-                updatedSession.metadata.session_id,
-                tempParaId,
-                updatedSession.paragraphs[tempParaIndex].text + '\n\n '
-              );
-              
-              // Разделяем параграф
-              updatedSession = await splitParagraph(
-                updatedSession.metadata.session_id,
-                tempParaId,
-                updatedSession.paragraphs[tempParaIndex].text.length + 2 // +2 чтобы пропустить \n\n
-              );
-              
-              // Обновляем новый параграф с правильным текстом
-              const newParaId = tempParaId + 1;
-              await updateParagraph(
-                updatedSession.metadata.session_id,
-                newParaId,
-                paragraphs[i]
-              );
-              
-              // Получаем обновленную сессию для следующей итерации
-              updatedSession = await fetchAnalysis(updatedSession.metadata.session_id);
-            } catch (error) {
-              console.error(`Ошибка при создании абзаца ${i}:`, error);
-            }
-          }
-          
-          // Получаем финальную версию сессии
-          const finalSession = await fetchAnalysis(sessionData.metadata.session_id);
-          
-          // Обновляем состояние
-          setSessionData(finalSession);
-          setParagraphs(finalSession.paragraphs);
-          setEditingParagraphId(null);
-          setEditingText('');
-          markSemanticsAsStale();
-        } else {
-          // Если абзац только один, используем обычное сохранение
-          await handleSaveEditing();
-        }
-      } else {
-        // Если нет двойных переносов, просто сохраняем как обычно
-        await handleSaveEditing();
-      }
     } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : 'Ошибка при разделении абзаца';
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при сохранении/удалении абзаца';
       setCurrentError(errorMsg);
-      console.error('Split error:', e);
-      
-      // Если разделение не удалось, пробуем просто сохранить текст
-      try {
-        await handleSaveEditing();
-      } catch (saveError) {
-        console.error('Save error after split failure:', saveError);
-      }
+      console.error('Save/Delete error:', e);
     } finally {
       setIsSaving(false);
     }
@@ -277,7 +182,7 @@ const CardList: React.FC<CardListProps> = ({
     setCurrentError(null);
     try {
       const updatedSession = await refreshFullSemanticAnalysis(sessionData.metadata.session_id);
-      onSemanticRefresh(updatedSession); // Передаем обновленную сессию в App.tsx
+      onSemanticRefresh(updatedSession);
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : 'Ошибка при обновлении семантики';
       setCurrentError(errorMsg);
@@ -295,14 +200,13 @@ const CardList: React.FC<CardListProps> = ({
     try {
       const updatedSession = await mergeParagraphs(
         sessionData.metadata.session_id,
-        index - 1, // Предыдущий абзац
-        index // Текущий абзац
+        paragraphs[index - 1].id,
+        paragraphs[index].id
       );
       
-      // Обновляем все данные сессии, т.к. при слиянии меняются индексы абзацев
       setSessionData(updatedSession);
       setParagraphs(updatedSession.paragraphs);
-      markSemanticsAsStale(); // Помечаем, что семантика может быть неактуальна
+      markSemanticsAsStale();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : 'Ошибка при слиянии абзацев';
       setCurrentError(errorMsg);
@@ -313,27 +217,57 @@ const CardList: React.FC<CardListProps> = ({
   };
 
   const handleMergeDown = async (index: number) => {
-    if (index >= paragraphs.length - 1 || isMergingParagraphs || editingParagraphId !== null) return;
+    const currentParagraphId = sortedAndFilteredParagraphs[index].id;
+    const nextParagraphVisualIndex = sortedAndFilteredParagraphs.findIndex(p => p.id === currentParagraphId) + 1;
+
+    if (nextParagraphVisualIndex >= sortedAndFilteredParagraphs.length || isMergingParagraphs || editingParagraphId !== null) return;
     
+    const nextParagraphId = sortedAndFilteredParagraphs[nextParagraphVisualIndex].id;
+
     setIsMergingParagraphs(true);
     setCurrentError(null);
     try {
       const updatedSession = await mergeParagraphs(
         sessionData.metadata.session_id,
-        index, // Текущий абзац
-        index + 1 // Следующий абзац
+        currentParagraphId, 
+        nextParagraphId 
       );
-      
-      // Обновляем все данные сессии, т.к. при слиянии меняются индексы абзацев
       setSessionData(updatedSession);
       setParagraphs(updatedSession.paragraphs);
-      markSemanticsAsStale(); // Помечаем, что семантика может быть неактуальна
+      markSemanticsAsStale();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : 'Ошибка при слиянии абзацев';
       setCurrentError(errorMsg);
       console.error('Merge error:', e);
     } finally {
       setIsMergingParagraphs(false);
+    }
+  };
+
+  const handleDeleteParagraph = async (paragraphId: number) => {
+    if (!sessionData || isDeleting) return;
+
+    const confirmDelete = window.confirm("Вы уверены, что хотите удалить этот абзац? Это действие необратимо.");
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    setCurrentError(null);
+    try {
+      const updatedSession = await deleteParagraph(sessionData.metadata.session_id, paragraphId);
+      
+      setSessionData(updatedSession);
+      setParagraphs(updatedSession.paragraphs);
+      markSemanticsAsStale();
+      if (editingParagraphId === paragraphId) {
+        handleCancelEditing();
+      }
+
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при удалении абзаца';
+      setCurrentError(errorMsg);
+      console.error('Delete error:', e);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -348,15 +282,9 @@ const CardList: React.FC<CardListProps> = ({
     }
     
     result.sort((a, b) => {
-      let aValue: any = a.metrics[sortField as keyof ParagraphData["metrics"]] ?? (sortField === 'id' ? a.id : (sortField === 'semantic_function' ? 'Не определено' : 0));
-      let bValue: any = b.metrics[sortField as keyof ParagraphData["metrics"]] ?? (sortField === 'id' ? b.id : (sortField === 'semantic_function' ? 'Не определено' : 0));
+      let aValue: any = sortField === 'id' ? a.id : a.metrics[sortField as keyof ParagraphData["metrics"]] ?? (sortField === 'semantic_function' ? 'Не определено' : 0);
+      let bValue: any = sortField === 'id' ? b.id : b.metrics[sortField as keyof ParagraphData["metrics"]] ?? (sortField === 'semantic_function' ? 'Не определено' : 0);
       
-      // Специальная обработка для id
-      if (sortField === 'id') {
-        aValue = a.id;
-        bValue = b.id;
-      }
-
       if (typeof aValue === 'string' && typeof bValue === 'string') {
         return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
       }
@@ -370,19 +298,11 @@ const CardList: React.FC<CardListProps> = ({
     if (paragraphRefs.current[paragraphId]) {
       const cardElement = paragraphRefs.current[paragraphId];
       if (cardElement && contentRef.current) {
-        // Вычисляем высоту закрепленной шапки и панели управления
-        const headerHeight = 60; // Высота шапки
-        const controlPanelHeight = 180; // Примерная высота панели управления
-        const totalOffset = headerHeight + controlPanelHeight;
-        
-        // Вычисляем позицию для скролла, учитывая закрепленные элементы
+        const headerHeight = 60; 
+        const controlPanelHeight = contentRef.current.offsetTop - headerHeight; // Более точный расчет высоты панели
+        const totalOffset = headerHeight + controlPanelHeight + 20; // + небольшой отступ
         const topPosition = cardElement.getBoundingClientRect().top + window.pageYOffset - totalOffset;
-        
-        // Плавно скроллим до элемента
-        window.scrollTo({
-          top: topPosition,
-          behavior: 'smooth'
-        });
+        window.scrollTo({ top: topPosition, behavior: 'smooth' });
       }
     }
   };
@@ -598,7 +518,7 @@ const CardList: React.FC<CardListProps> = ({
                     flex: '1',
                     height: '100%',
                     backgroundColor: getBackgroundColorForSignal(signal),
-                    cursor: 'pointer' // Добавляем курсор-указатель, чтобы пользователь понял, что это кликабельный элемент
+                    cursor: 'pointer'
                   }}
                   title={`ID: ${paragraph.id}, Сигнал/Шум: ${(normalizedSignal * 100).toFixed(1)}%`}
                   onClick={() => scrollToCard(paragraph.id)}
@@ -644,12 +564,13 @@ const CardList: React.FC<CardListProps> = ({
           editingText={editingText}
           setEditingText={setEditingText}
           handleStartEditing={handleStartEditing}
-          handleSaveWithSplit={handleSaveWithSplit}
+          handleSaveEditing={handleSaveEditing}
           handleCancelEditing={handleCancelEditing}
           isSaving={isSaving}
           handleMergeDown={handleMergeDown}
           sortedAndFilteredParagraphs={sortedAndFilteredParagraphs}
           paragraphRefs={paragraphRefs}
+          onDeleteRequest={handleDeleteParagraph}
         />
       </div>
     </div>

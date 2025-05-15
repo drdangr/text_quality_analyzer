@@ -19,6 +19,13 @@ class ParagraphUpdateRequest(BaseModel):
     paragraph_id: int = Field(..., ge=0, description="ID абзаца (индекс в списке) для обновления")
     text: str = Field(..., description="Новый текст абзаца")
 
+# Новая модель запроса для обновления текста с возможным разделением
+class ParagraphTextUpdateRequest(BaseModel):
+    """Модель запроса для обновления текста абзаца с возможностью разделения."""
+    session_id: str = Field(..., description="ID сессии")
+    paragraph_id: int = Field(..., ge=0, description="ID абзаца, который редактируется")
+    text: str = Field(description="Полный новый текст из поля редактирования") # Может быть пустым
+
 class ParagraphMetrics(BaseModel):
     """Модель метрик абзаца."""
     # Метрики из readability.py

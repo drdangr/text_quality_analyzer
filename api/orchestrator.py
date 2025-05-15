@@ -7,6 +7,9 @@ import uuid
 import logging
 import concurrent.futures # Для ThreadPoolExecutor
 import re
+from fastapi import HTTPException # <--- Добавляем импорт HTTPException
+
+from utils.text_processing import split_into_paragraphs # <--- Перемещаем импорт сюда
 
 # Импортируем адаптированные модули анализа
 from analysis import readability
@@ -135,8 +138,7 @@ class AnalysisOrchestrator:
             logger.info(f"Используется существующая сессия анализа: {session_id}")
 
         logger.info(f"--- ORCHESTRATOR ACTUAL SESSION ID: {session_id} ---")
-
-        from utils.text_processing import split_into_paragraphs # Локальный импорт, чтобы избежать проблем при импорте модуля
+        # split_into_paragraphs теперь импортируется в начале файла
         paragraphs = split_into_paragraphs(text_content)
         
         if not paragraphs:
@@ -502,3 +504,142 @@ class AnalysisOrchestrator:
         
         # Возвращаем обновленный результат анализа
         return self._format_analysis_result(df, new_topic, session_id)
+
+    async def delete_paragraph_from_session(self, session_id: str, paragraph_id_to_delete: int) -> Optional[Dict[str, Any]]:
+        """
+        Удаляет указанный абзац из сессии анализа и возвращает обновленную сессию.
+        """
+        logger.info(f"[Orchestrator] delete_paragraph_from_session: session_id={session_id}, paragraph_id_to_delete={paragraph_id_to_delete}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для удаления абзаца.")
+            raise HTTPException(status_code=404, detail=f"Сессия {session_id} не найдена.")
+
+        df = analysis_data["df"]
+        topic = analysis_data["topic"]
+
+        if paragraph_id_to_delete not in df['paragraph_id'].values:
+            logger.warning(f"[Orchestrator] Абзац с ID {paragraph_id_to_delete} не найден в сессии {session_id}.")
+            raise HTTPException(status_code=404, detail=f"Абзац {paragraph_id_to_delete} не найден в сессии {session_id}.")
+
+        df = df[df['paragraph_id'] != paragraph_id_to_delete].copy()
+
+        if not df.empty:
+            df['paragraph_id'] = range(len(df))
+        else:
+            logger.info(f"[Orchestrator] Все абзацы удалены из сессии {session_id}.")
+
+        if 'semantic_function' in df.columns:
+            df['semantic_function'] = None
+        if 'semantic_method' in df.columns:
+            df['semantic_method'] = None
+        if 'semantic_error' in df.columns:
+            df['semantic_error'] = None
+        
+        self.session_store.save_analysis(session_id, df, topic)
+        logger.info(f"[Orchestrator] Абзац {paragraph_id_to_delete} удален. В сессии {session_id} осталось {len(df)} абзацев.")
+
+        return self._format_analysis_result(df, topic, session_id)
+
+    async def update_text_and_restructure_paragraph(
+        self, session_id: str, paragraph_id_to_process: int, full_new_text: str
+    ) -> Dict[str, Any]:
+        logger.info(f"[Orchestrator] update_text_and_restructure_paragraph: session_id={session_id}, paragraph_id={paragraph_id_to_process}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.error(f"[Orchestrator] Сессия {session_id} не найдена.")
+            raise HTTPException(status_code=404, detail=f"Сессия {session_id} не найдена.")
+
+        original_df = analysis_data["df"].copy()
+        topic = analysis_data["topic"]
+        
+        # Проверяем, существует ли исходный абзац для обработки
+        # DataFrame может быть пустым, или paragraph_id_to_process может быть некорректным
+        # paragraph_id_to_process - это ID изначального абзаца, который редактировали
+        # Мы должны найти его по этому ID в original_df.
+        if not original_df[original_df['paragraph_id'] == paragraph_id_to_process].empty:
+            original_paragraph_index = original_df[original_df['paragraph_id'] == paragraph_id_to_process].index[0]
+        else:
+            # Если исходный абзац не найден (например, если df пустой или ID неверный)
+            # Это может случиться, если, например, пользователь пытается отредактировать только что удаленный абзац
+            # или если ID был некорректен изначально.
+            logger.warning(f"[Orchestrator] Исходный абзац с ID {paragraph_id_to_process} не найден в сессии {session_id} для обновления/разделения.")
+            # В этом случае, возможно, стоит просто вернуть текущее состояние сессии без изменений или специфическую ошибку.
+            # Однако, если full_new_text не пустой, это может означать попытку создать новый абзац, если предыдущий был удален.
+            # Для текущей логики, если исходный абзац не найден, мы не можем продолжить операцию как "обновление".
+            # Фронтенд должен управлять созданием новых абзацев через другие механизмы, если это требуется.
+            raise HTTPException(status_code=404, detail=f"Редактируемый абзац с ID {paragraph_id_to_process} не найден.")
+
+        trimmed_full_new_text = full_new_text.strip()
+
+        if not trimmed_full_new_text: # Текст полностью удален пользователем
+            logger.info(f"[Orchestrator] Текст для абзаца {paragraph_id_to_process} пуст. Удаление абзаца.")
+            df_after_deletion = original_df[original_df['paragraph_id'] != paragraph_id_to_process].copy()
+            if not df_after_deletion.empty:
+                df_after_deletion['paragraph_id'] = range(len(df_after_deletion))
+            
+            # Сбрасываем семантику для всех оставшихся, так как контекст изменился
+            for col in ['semantic_function', 'semantic_method', 'semantic_error']:
+                if col in df_after_deletion.columns: df_after_deletion[col] = None
+            
+            self.session_store.save_analysis(session_id, df_after_deletion, topic)
+            return self._format_analysis_result(df_after_deletion, topic, session_id)
+
+        # Текст не пустой, обрабатываем разделение
+        new_paragraph_texts = split_into_paragraphs(trimmed_full_new_text)
+        
+        # Сохраняем части DataFrame: до редактируемого абзаца, сам абзац, после него
+        df_before_edited = original_df.iloc[:original_paragraph_index]
+        # df_edited_row = original_df.iloc[[original_paragraph_index]].copy() # Пока не используем, создадим новые строки
+        df_after_edited = original_df.iloc[original_paragraph_index + 1:]
+
+        # Создаем DataFrame для новых (разделенных) текстов
+        # Они получат временные ID, которые потом будут пересчитаны
+        new_texts_df_data = []
+        for i, text_part in enumerate(new_paragraph_texts):
+            new_texts_df_data.append({
+                'paragraph_id': original_paragraph_index + i, # Временный ID для сохранения порядка
+                'text': text_part
+            })
+        new_paragraphs_interim_df = pd.DataFrame(new_texts_df_data)
+
+        # Пересчитываем все метрики для этих новых текстов
+        logger.debug(f"[Orchestrator] Пересчет метрик для {len(new_paragraph_texts)} новых/измененных абзацев.")
+        reanalyzed_metrics_df = await self._run_analysis_pipeline(new_paragraph_texts, topic)
+        # reanalyzed_metrics_df будет иметь 'paragraph_id' от 0 до N-1
+        
+        # Соединяем тексты из new_paragraphs_interim_df с их новыми метриками
+        # Убедимся, что 'text' есть в reanalyzed_metrics_df для правильного merge или join
+        if 'text' not in reanalyzed_metrics_df.columns and not new_paragraphs_interim_df.empty:
+             # Если _run_analysis_pipeline не вернул 'text', добавим его из new_paragraph_texts
+             reanalyzed_metrics_df['text'] = new_paragraph_texts 
+
+        # Обновляем new_paragraphs_interim_df метриками из reanalyzed_metrics_df
+        # Сбросим paragraph_id из reanalyzed_metrics_df, чтобы не было конфликта при join/merge
+        # и будем использовать индексы для сопоставления
+        reanalyzed_metrics_df = reanalyzed_metrics_df.reset_index(drop=True)
+        new_paragraphs_interim_df = new_paragraphs_interim_df.reset_index(drop=True)
+        
+        # Добавляем все колонки метрик из reanalyzed_metrics_df в new_paragraphs_interim_df
+        for col in reanalyzed_metrics_df.columns:
+            if col != 'paragraph_id' and col != 'text': # Текст уже есть, paragraph_id временный
+                 new_paragraphs_interim_df[col] = reanalyzed_metrics_df[col]
+        if 'text' not in new_paragraphs_interim_df.columns and 'text' in reanalyzed_metrics_df.columns: # Если вдруг текста нет
+             new_paragraphs_interim_df['text'] = reanalyzed_metrics_df['text']
+ 
+        # Собираем финальный DataFrame
+        final_df = pd.concat([df_before_edited, new_paragraphs_interim_df, df_after_edited]).reset_index(drop=True)
+        
+        # Финальная перенумерация paragraph_id
+        if not final_df.empty:
+            final_df['paragraph_id'] = range(len(final_df))
+        
+        # Сбрасываем семантику для ВСЕХ абзацев, так как структура изменилась
+        # (даже для тех, что были в df_after_edited, их контекст изменился)
+        logger.info("[Orchestrator] Сброс семантических меток для всех абзацев после обновления/разделения.")
+        for col in ['semantic_function', 'semantic_method', 'semantic_error']:
+            if col in final_df.columns: final_df[col] = None
+
+        self.session_store.save_analysis(session_id, final_df, topic)
+        logger.info(f"[Orchestrator] Абзац {paragraph_id_to_process} обновлен/разделен. Сессия {session_id} теперь содержит {len(final_df)} абзацев.")
+        return self._format_analysis_result(final_df, topic, session_id)
