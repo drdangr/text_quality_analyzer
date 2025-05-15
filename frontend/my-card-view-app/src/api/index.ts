@@ -139,6 +139,29 @@ export async function mergeParagraphs(
     return response.json() as Promise<AnalysisResponse>;
 }
 
+// Разделение абзаца на два
+export async function splitParagraph(
+    sessionId: string,
+    paragraphId: number,
+    splitPosition: number
+): Promise<AnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/split-paragraph`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            paragraph_id: paragraphId,
+            split_position: splitPosition
+        }),
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
 // --- Logger (простой, для использования в handleResponseError) ---
 // В реальном приложении лучше использовать более продвинутый логгер или систему мониторинга
 const logger = {

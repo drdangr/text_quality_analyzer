@@ -91,40 +91,51 @@ const Card: React.FC<CardProps> = ({
   };
 
   const cardStyle: React.CSSProperties = {
-    backgroundColor: getBackgroundColor(),
-    color: getTextColor(),
     border: '1px solid #ddd',
     borderRadius: '8px',
-    padding: '15px',
-    marginBottom: '15px',
+    marginBottom: '1px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    overflow: 'hidden', // Чтобы контент не выходил за пределы закругленных углов
+  };
+
+  const contentStyle: React.CSSProperties = {
+    backgroundColor: getBackgroundColor(),
+    color: getTextColor(),
+    padding: '1px 15px',
     fontSize: fontSize,
   };
 
-  const metaInfoStyle: React.CSSProperties = {
-    fontSize: `calc(${fontSize} * 0.8)`,
+  const headerStyle: React.CSSProperties = {
+    backgroundColor: '#ffffff',
+    padding: '6px 15px',
+    borderBottom: '1px solid #eee',
+    fontSize: `calc(${fontSize} * 0.75)`,
     color: '#555',
-    marginBottom: '10px',
+    textAlign: 'left' as const,
     display: 'flex',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    flexWrap: 'wrap'
+    gap: '6px',
+    justifyContent: 'space-between'
   };
 
   const textStyle: React.CSSProperties = {
-    lineHeight: '1.6',
+    lineHeight: '1.2',
     whiteSpace: 'pre-wrap',
     textAlign: 'left',
+    margin: '0 0 5px 0',
+    padding: 0
   };
 
   const buttonStyle: React.CSSProperties = {
-    padding: '6px 12px',
-    fontSize: `calc(${fontSize} * 0.75)`,
+    padding: '4px 10px',
+    fontSize: `calc(${fontSize} * 0.7)`,
     backgroundColor: '#f0f0f0',
     border: '1px solid #ccc',
     borderRadius: '4px',
     cursor: 'pointer',
-    marginLeft: '10px'
+    marginLeft: '10px',
+    lineHeight: '1'
   };
 
   const saveButtonStyle: React.CSSProperties = {
@@ -168,17 +179,70 @@ const Card: React.FC<CardProps> = ({
   };
 
   return (
-    <div style={{ position: 'relative', marginBottom: '15px' }}>
+    <div style={{ position: 'relative', marginBottom: '1px' }}>
       <div style={cardStyle}>
-        <div style={metaInfoStyle}>
-          <div>
-            ID: {paragraph.id} | 
-            Сигнал: {(paragraph.metrics.signal_strength ?? 0).toFixed(3)} | 
-            Сложность: {(paragraph.metrics.complexity ?? 0).toFixed(3)} | 
-            Семантика: {paragraph.metrics.semantic_function || 'Не определено'}
-            {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
+        {/* Информация об анализе (верхняя часть с белым фоном) */}
+        <div style={headerStyle}>
+          <div style={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            alignItems: 'center', 
+            gap: '6px',
+            flex: '1'
+          }}>
+            <div>ID: {paragraph.id}</div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <span>Сигнал:</span>
+              <div style={{ 
+                width: '60px', 
+                height: '6px', 
+                backgroundColor: '#e9ecef',
+                borderRadius: '3px',
+                overflow: 'hidden',
+                display: 'inline-block'
+              }}>
+                <div 
+                  title={`Сигнал: ${(paragraph.metrics.signal_strength ?? 0).toFixed(3)}`} 
+                  style={{ 
+                    width: `${normalizedSignal * 100}%`, 
+                    height: '100%', 
+                    backgroundColor: signalMaxColor,
+                    transition: 'width 0.3s ease-in-out'
+                  }} 
+                />
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <span>Сложность:</span>
+              <div style={{ 
+                width: '60px', 
+                height: '6px', 
+                backgroundColor: '#e9ecef',
+                borderRadius: '3px',
+                overflow: 'hidden',
+                display: 'inline-block'
+              }}>
+                <div 
+                  title={`Сложность: ${(paragraph.metrics.complexity ?? 0).toFixed(3)}`} 
+                  style={{ 
+                    width: `${normalizedComplexity * 100}%`, 
+                    height: '100%', 
+                    backgroundColor: complexityMaxColor,
+                    transition: 'width 0.3s ease-in-out'
+                  }} 
+                />
+              </div>
+            </div>
+            
+            <div>
+              Семантика: {paragraph.metrics.semantic_function || 'Не определено'}
+              {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
+            </div>
           </div>
           
+          {/* Кнопка "Редактировать" */}
           {!isEditing && (
             <button 
               onClick={onStartEditing}
@@ -189,80 +253,42 @@ const Card: React.FC<CardProps> = ({
             </button>
           )}
         </div>
-        
-        {isEditing ? (
-          <div>
-            <textarea
-              value={editingText}
-              onChange={(e) => onEditingTextChange(e.target.value)}
-              style={textareaStyle}
-              aria-label="Редактирование текста абзаца"
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                onClick={onCancel}
-                disabled={isSaving}
-                style={buttonStyle}
-              >
-                Отмена
-              </button>
-              <button
-                onClick={onSave}
-                disabled={isSaving}
-                style={saveButtonStyle}
-              >
-                {isSaving ? 'Сохранение...' : 'Сохранить'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p style={textStyle}>{paragraph.text}</p>
-        )}
 
-        {/* Визуальные индикаторы метрик */} 
-        <div style={{ 
-          display: 'flex', 
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          marginTop: '15px',
-          fontSize: `calc(${fontSize} * 0.7)`,
-          color: '#555'
-        }}>
-          <div style={{ marginBottom: '8px'}}>
-            <div style={{ marginBottom: '2px' }}>Сигнал:</div>
-            <div style={{ 
-              width: '100px', 
-              height: '8px', 
-              backgroundColor: '#e9ecef',
-              borderRadius: '4px',
-              overflow: 'hidden' 
-            }}>
-              <div title={`Сигнал: ${(paragraph.metrics.signal_strength ?? 0).toFixed(3)}`} style={{ 
-                width: `${normalizedSignal * 100}%`, 
-                height: '100%', 
-                backgroundColor: signalMaxColor,
-                transition: 'width 0.3s ease-in-out'
-              }} />
+        {/* Основное содержимое с цветным фоном */}
+        <div style={contentStyle}>
+          {isEditing ? (
+            <div>
+              <textarea
+                value={editingText}
+                onChange={(e) => onEditingTextChange(e.target.value)}
+                style={textareaStyle}
+                aria-label="Редактирование текста абзаца"
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: `calc(${fontSize} * 0.7)`, color: '#666', fontStyle: 'italic' }}>
+                  Совет: Добавьте двойной перенос строки (пустую строку), чтобы разделить абзац на два.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button
+                    onClick={onCancel}
+                    disabled={isSaving}
+                    style={buttonStyle}
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={onSave}
+                    disabled={isSaving}
+                    style={saveButtonStyle}
+                  >
+                    {isSaving ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-          
-          <div>
-            <div style={{ marginBottom: '2px' }}>Сложность:</div>
-            <div style={{ 
-              width: '100px', 
-              height: '8px', 
-              backgroundColor: '#e9ecef',
-              borderRadius: '4px',
-              overflow: 'hidden'
-            }}>
-              <div title={`Сложность: ${(paragraph.metrics.complexity ?? 0).toFixed(3)}`} style={{ 
-                width: `${normalizedComplexity * 100}%`, 
-                height: '100%', 
-                backgroundColor: complexityMaxColor,
-                transition: 'width 0.3s ease-in-out'
-              }} />
-            </div>
-          </div>
+          ) : (
+            <p style={textStyle}>{paragraph.text}</p>
+          )}
         </div>
       </div>
 

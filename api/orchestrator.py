@@ -360,3 +360,57 @@ class AnalysisOrchestrator:
         self.session_store.save_analysis(session_id, df, topic)
         logger.info(f"[Orchestrator] Абзацы {paragraph_id_1} и {paragraph_id_2} объединены в сессии {session_id}.")
         return self._format_analysis_result(df, topic, session_id)
+
+    async def split_paragraph(self, session_id: str, paragraph_id: int, split_position: int) -> Optional[Dict[str, Any]]:
+        """
+        Разделяет абзац на два по указанной позиции, пересчитывает метрики и возвращает обновленную сессию.
+        """
+        logger.info(f"[Orchestrator] split_paragraph: session_id={session_id}, paragraph_id={paragraph_id}, split_position={split_position}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для разделения абзаца.")
+            return None
+        df = analysis_data["df"]
+        topic = analysis_data["topic"]
+
+        # Проверяем, что абзац существует
+        if not (0 <= paragraph_id < len(df)):
+            logger.error(f"[Orchestrator] Абзац с ID {paragraph_id} не найден в сессии {session_id}")
+            return None
+        
+        original_text = str(df.loc[paragraph_id, 'text'])
+        
+        # Проверяем, что позиция разделения валидна
+        if not (0 < split_position < len(original_text)):
+            logger.error(f"[Orchestrator] Невалидная позиция разделения: {split_position} для абзаца длиной {len(original_text)}")
+            return None
+
+        # Разделяем текст на два абзаца
+        text_first = original_text[:split_position].rstrip()
+        text_second = original_text[split_position:].lstrip()
+        
+        # Удаляем оригинальный абзац
+        df = df.drop([paragraph_id]).reset_index(drop=True)
+        
+        # Вставляем два новых абзаца на место оригинального
+        new_rows = pd.DataFrame({
+            'paragraph_id': [paragraph_id, paragraph_id + 0.5],  # Временные ID, будут перенумерованы
+            'text': [text_first, text_second]
+        })
+        df = pd.concat([df.iloc[:paragraph_id], new_rows, df.iloc[paragraph_id:]], ignore_index=True)
+        
+        # Перенумеровываем paragraph_id
+        df['paragraph_id'] = range(len(df))
+        
+        # Пересчитываем метрики для новых абзацев
+        new_df = await self._run_analysis_pipeline([text_first, text_second], topic)
+        
+        # Обновляем метрики для новых абзацев
+        for idx, orig_idx in enumerate([paragraph_id, paragraph_id + 1]):
+            for col in ['lix', 'smog', 'complexity', 'signal_strength', 'semantic_function', 'semantic_method', 'semantic_error']:
+                if col in new_df.columns:
+                    df.loc[orig_idx, col] = new_df.iloc[idx][col]
+
+        self.session_store.save_analysis(session_id, df, topic)
+        logger.info(f"[Orchestrator] Абзац {paragraph_id} разделен на два в сессии {session_id}.")
+        return self._format_analysis_result(df, topic, session_id)

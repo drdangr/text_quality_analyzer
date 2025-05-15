@@ -71,6 +71,12 @@ class ParagraphsMergeRequest(BaseModel):
     paragraph_id_1: int = Field(..., ge=0, description="ID первого абзаца для слияния")
     paragraph_id_2: int = Field(..., ge=0, description="ID второго абзаца для слияния")
 
+class ParagraphSplitRequest(BaseModel):
+    """Модель запроса для разделения абзаца на два."""
+    session_id: str = Field(..., description="ID сессии, в рамках которой происходит разделение")
+    paragraph_id: int = Field(..., ge=0, description="ID абзаца для разделения")
+    split_position: int = Field(..., ge=0, description="Позиция символа, с которой начинается новый абзац")
+
 # Модель для ответа при ошибках (пример)
 # class ErrorResponse(BaseModel):
 #     detail: str

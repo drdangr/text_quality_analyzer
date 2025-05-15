@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Card from './Card';
 import type { ParagraphData, AnalysisResponse } from './types'; // Используем AnalysisResponse
-import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs } from '../../api'; // Убрали fetchAnalysis, т.к. сессия приходит как prop // Добавили refreshFullSemanticAnalysis и mergeParagraphs
+import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs, splitParagraph, fetchAnalysis } from '../../api'; // Добавил fetchAnalysis
 
 // Типы для сортировки и фильтрации
 type SortField = 'id' | 'signal_strength' | 'complexity' | 'semantic_function'; // id вместо paragraph_id
@@ -128,6 +128,102 @@ const CardList: React.FC<CardListProps> = ({
       const errorMsg = e instanceof Error ? e.message : 'Ошибка при сохранении изменений';
       setCurrentError(errorMsg);
       console.error('Save error:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveWithSplit = async () => {
+    if (editingParagraphId === null || !sessionData) return;
+    
+    setIsSaving(true);
+    setCurrentError(null);
+    
+    try {
+      // Проверяем, содержит ли текст двойные переносы строк
+      if (editingText.includes('\n\n')) {
+        // Разбиваем текст на абзацы по двойным переносам
+        const paragraphs = editingText.split('\n\n').filter(p => p.trim().length > 0);
+        
+        if (paragraphs.length > 1) {
+          // Сохраняем первый абзац в текущую карточку
+          await updateParagraph(
+            sessionData.metadata.session_id,
+            editingParagraphId,
+            paragraphs[0]
+          );
+          
+          // Получаем актуальную версию сессии
+          let updatedSession = await fetchAnalysis(sessionData.metadata.session_id);
+          
+          // Запрашиваем создание новых карточек через специальный эндпоинт
+          // Мы используем простой подход: для каждого дополнительного абзаца
+          // создаем новую карточку последовательно
+          
+          // Для каждого оставшегося абзаца
+          for (let i = 1; i < paragraphs.length; i++) {
+            try {
+              // Создаем новую карточку через API - сначала вставляем пустой текст
+              const tempParaIndex = editingParagraphId + i - 1;
+              const tempParaId = updatedSession.paragraphs[tempParaIndex].id;
+              
+              // Обновляем временно параграф, добавляя разделитель и пустой текст
+              await updateParagraph(
+                updatedSession.metadata.session_id,
+                tempParaId,
+                updatedSession.paragraphs[tempParaIndex].text + '\n\n '
+              );
+              
+              // Разделяем параграф
+              updatedSession = await splitParagraph(
+                updatedSession.metadata.session_id,
+                tempParaId,
+                updatedSession.paragraphs[tempParaIndex].text.length + 2 // +2 чтобы пропустить \n\n
+              );
+              
+              // Обновляем новый параграф с правильным текстом
+              const newParaId = tempParaId + 1;
+              await updateParagraph(
+                updatedSession.metadata.session_id,
+                newParaId,
+                paragraphs[i]
+              );
+              
+              // Получаем обновленную сессию для следующей итерации
+              updatedSession = await fetchAnalysis(updatedSession.metadata.session_id);
+            } catch (error) {
+              console.error(`Ошибка при создании абзаца ${i}:`, error);
+            }
+          }
+          
+          // Получаем финальную версию сессии
+          const finalSession = await fetchAnalysis(sessionData.metadata.session_id);
+          
+          // Обновляем состояние
+          setSessionData(finalSession);
+          setParagraphs(finalSession.paragraphs);
+          setEditingParagraphId(null);
+          setEditingText('');
+          markSemanticsAsStale();
+        } else {
+          // Если абзац только один, используем обычное сохранение
+          await handleSaveEditing();
+        }
+      } else {
+        // Если нет двойных переносов, просто сохраняем как обычно
+        await handleSaveEditing();
+      }
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при разделении абзаца';
+      setCurrentError(errorMsg);
+      console.error('Split error:', e);
+      
+      // Если разделение не удалось, пробуем просто сохранить текст
+      try {
+        await handleSaveEditing();
+      } catch (saveError) {
+        console.error('Save error after split failure:', saveError);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -336,7 +432,7 @@ const CardList: React.FC<CardListProps> = ({
           editingText={editingParagraphId === p.id ? editingText : ''}
           onEditingTextChange={setEditingText}
           onStartEditing={() => handleStartEditing(p)}
-          onSave={handleSaveEditing}
+          onSave={handleSaveWithSplit}
           onCancel={handleCancelEditing}
           isSaving={isSaving}
           isFirst={index === 0}

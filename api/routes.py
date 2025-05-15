@@ -10,6 +10,7 @@ from api.models import (
     ParagraphData,
     AnalysisResponse,
     ParagraphsMergeRequest,
+    ParagraphSplitRequest,
     # ExportRequest # Пока не используем, экспорт через GET
 )
 
@@ -200,23 +201,49 @@ async def merge_paragraphs_endpoint(
     - **session_id**: ID активной сессии анализа.
     - **paragraph_id_1**: ID первого абзаца для слияния.
     - **paragraph_id_2**: ID второго абзаца для слияния.
-    
-    При слиянии тексты абзацев объединяются, удаляя двойные переводы строк.
-    Для нового объединённого абзаца заново рассчитываются все метрики.
     """
-    logger.info(f"API /merge-paragraphs вызван. Session ID: {request_data.session_id}, Paragraphs: {request_data.paragraph_id_1} и {request_data.paragraph_id_2}")
+    logger.info(f"API /merge-paragraphs вызван. Session ID: {request_data.session_id}, Paragraph IDs: {request_data.paragraph_id_1}, {request_data.paragraph_id_2}")
     try:
-        merge_result = await orchestrator.merge_paragraphs(
+        result = await orchestrator.merge_paragraphs(
             session_id=request_data.session_id,
             paragraph_id_1=request_data.paragraph_id_1,
             paragraph_id_2=request_data.paragraph_id_2
         )
-        if merge_result is None:
-            logger.warning(f"Не удалось объединить абзацы для сессии {request_data.session_id}. Сессия не найдена или абзацы не существуют.")
-            raise HTTPException(status_code=404, detail=f"Failed to merge paragraphs. Session not found or paragraphs don't exist.")
-        return merge_result
+        if result is None:
+            logger.warning(f"Не удалось выполнить слияние абзацев для сессии {request_data.session_id}. Сессия не найдена или абзацы не существуют.")
+            raise HTTPException(status_code=404, detail="Session or paragraphs not found.")
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка в эндпоинте /merge-paragraphs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during paragraphs merge: {e}")
+
+@router.post("/split-paragraph", response_model=AnalysisResponse, summary="Разделить абзац на два")
+async def split_paragraph_endpoint(
+    request_data: ParagraphSplitRequest = Body(...),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Разделяет абзац на два в указанной позиции в рамках существующей сессии анализа.
+    
+    - **session_id**: ID активной сессии анализа.
+    - **paragraph_id**: ID абзаца для разделения.
+    - **split_position**: Позиция символа, с которой начинается новый абзац.
+    """
+    logger.info(f"API /split-paragraph вызван. Session ID: {request_data.session_id}, Paragraph ID: {request_data.paragraph_id}, Split Position: {request_data.split_position}")
+    try:
+        result = await orchestrator.split_paragraph(
+            session_id=request_data.session_id,
+            paragraph_id=request_data.paragraph_id,
+            split_position=request_data.split_position
+        )
+        if result is None:
+            logger.warning(f"Не удалось выполнить разделение абзаца для сессии {request_data.session_id}. Сессия не найдена или абзац не существует.")
+            raise HTTPException(status_code=404, detail="Session or paragraph not found, or invalid split position.")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте /split-paragraph: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during paragraph split: {e}")
