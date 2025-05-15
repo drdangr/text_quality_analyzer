@@ -73,33 +73,55 @@ const Card: React.FC<CardProps> = ({
   const normalizedSignal = normalize(paragraph.metrics.signal_strength || 0, minSignal, maxSignal);
   const normalizedComplexity = normalize(paragraph.metrics.complexity || 0, minComplexity, maxComplexity);
 
-  const getBackgroundColor = () => {
-    const startColor = hexToRgb(signalMinColor) || { r: 255, g: 255, b: 255 }; // Default white
-    const endColor = hexToRgb(signalMaxColor) || { r: 255, g: 219, b: 88 };   // Default mustard
-    
+  const cardContentBgColor = getBackgroundColor(); // Фон контентной части
+
+  function getBackgroundColor() { // Оставил function для hoisting если нужно, но тут не критично
+    const startColor = hexToRgb(signalMinColor) || { r: 255, g: 255, b: 255 };
+    const endColor = hexToRgb(signalMaxColor) || { r: 255, g: 219, b: 88 };
     const r = lerp(startColor.r, endColor.r, normalizedSignal);
     const g = lerp(startColor.g, endColor.g, normalizedSignal);
     const b = lerp(startColor.b, endColor.b, normalizedSignal);
     return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // Функция для определения цвета текста абзаца на основе его сложности
+  const getParagraphContentTextColor = () => {
+    const startColor = hexToRgb(complexityMinColor) || { r: 0, g: 128, b: 0 };
+    const endColor = hexToRgb(complexityMaxColor) || { r: 255, g: 0, b: 0 };
+    const r = lerp(startColor.r, endColor.r, normalizedComplexity);
+    const g = lerp(startColor.g, endColor.g, normalizedComplexity);
+    const b = lerp(startColor.b, endColor.b, normalizedComplexity);
+    return `rgb(${r}, ${g}, ${b})`;
   };
 
-  const getTextColor = () => {
-    const baseBgColor = getBackgroundColor();
-    // Определяем яркость фона (простой способ)
-    const rgb = baseBgColor.match(/\d+/g)?.map(Number);
-    if (!rgb) return '#000000'; // Черный по умолчанию, если парсинг не удался
+  // Определяет контрастный цвет (черный/белый) к заданному фону
+  const getContrastBasedTextColor = (bgColor: string) => {
+    const rgb = bgColor.match(/\d+/g)?.map(Number);
+    if (!rgb) return '#333333'; // По умолчанию темный, если фон не распознан
     const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-    // Если фон светлый (яркость > 128), используем темный текст, иначе светлый
     return brightness > 128 ? '#333333' : '#FFFFFF';
   };
   
   const getTextAreaTextColor = () => {
-    const baseBgColor = getBackgroundColor();
-    const rgb = baseBgColor.match(/\d+/g)?.map(Number);
-    if (!rgb) return '#000000'; 
+    const rgb = cardContentBgColor.match(/\d+/g)?.map(Number);
+    if (!rgb) return '#222222'; 
     const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-    return brightness > 128 ? '#222222' : '#f0f0f0'; // Чуть менее контрастный для textarea
+    return brightness > 128 ? '#222222' : '#f0f0f0'; 
   };
+
+  // Новая функция для цвета прогресс-бара сложности
+  const getComplexityBarColor = () => {
+    const startColor = hexToRgb(complexityMinColor) || { r: 0, g: 128, b: 0 }; 
+    const endColor = hexToRgb(complexityMaxColor) || { r: 255, g: 0, b: 0 };   
+    const r = lerp(startColor.r, endColor.r, normalizedComplexity);
+    const g = lerp(startColor.g, endColor.g, normalizedComplexity);
+    const b = lerp(startColor.b, endColor.b, normalizedComplexity);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  const headerTextColor = '#333333'; // Фиксированный темный цвет для шапки
+  const editingControlsTextColor = getContrastBasedTextColor(cardContentBgColor); // Цвет для кнопок и подсказки в режиме редактирования
+  const paragraphTextColor = getParagraphContentTextColor();
 
   const cardWrapperStyle: React.CSSProperties = {
     border: '1px solid #ddd',
@@ -107,24 +129,24 @@ const Card: React.FC<CardProps> = ({
     marginBottom: '1px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     overflow: 'hidden', 
-    backgroundColor: getBackgroundColor(), // Применяем фон сюда
-    transition: 'height 0.3s ease-in-out' // Плавный переход для высоты
+    backgroundColor: cardContentBgColor, // Используем вычисленный фон контента
+    transition: 'height 0.3s ease-in-out'
   };
 
-  const contentContainerStyle: React.CSSProperties = { // Новый контейнер для внутреннего контента
+  const contentContainerStyle: React.CSSProperties = { 
     padding: '1px 15px',
     fontSize: fontSize,
-    color: getTextColor(), // Цвет текста для всего содержимого
-    transition: 'opacity 0.3s ease-in-out', // Плавное появление/исчезновение контента
+    color: paragraphTextColor, 
+    // backgroundColor теперь устанавливается в cardWrapperStyle
   };
 
   const headerStyle: React.CSSProperties = {
-    position: 'relative', // Для позиционирования кнопки удаления
-    backgroundColor: 'rgba(248, 246, 246, 0.7)', // Слегка прозрачный для сохранения цвета фона
+    position: 'relative',
+    backgroundColor: 'rgba(248, 246, 246, 0.7)', 
     padding: '3px 15px',
     borderBottom: '1px solid rgba(238, 238, 238, 0.7)',
     fontSize: `calc(${fontSize} * 0.75)`,
-    color: getTextColor(), // Адаптируем цвет текста заголовка
+    color: headerTextColor, // Используем фиксированный цвет для шапки
     textAlign: 'left' as const,
     display: 'flex',
     flexWrap: 'wrap',
@@ -135,20 +157,21 @@ const Card: React.FC<CardProps> = ({
   };
 
   const textStyle: React.CSSProperties = {
-    lineHeight: '1.4', // Немного увеличим для читаемости
+    lineHeight: '1.4',
     whiteSpace: 'pre-wrap',
     textAlign: 'left',
-    margin: '10px 0', // Добавим отступы
+    margin: '10px 0',
     padding: 0,
-    minHeight: '20px', // Минимальная высота для пустого абзаца
+    minHeight: '20px',
   };
 
   const buttonStyle: React.CSSProperties = {
-    padding: '6px 12px', // Немного увеличим кнопки
+    padding: '6px 12px',
     fontSize: `calc(${fontSize} * 0.75)`,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)', // Полупрозрачный белый
-    border: `1px solid ${getTextColor() === '#FFFFFF' ? 'rgba(255,255,255,0.5)': 'rgba(0,0,0,0.2)'}`,
-    color: getTextColor(),
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    // Граница кнопки адаптируется к цвету текста на кнопке (editingControlsTextColor)
+    border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.5)': 'rgba(0,0,0,0.2)'}`,
+    color: editingControlsTextColor, // Кнопки в режиме редактирования используют этот цвет
     borderRadius: '4px',
     cursor: 'pointer',
     marginLeft: '10px',
@@ -157,15 +180,16 @@ const Card: React.FC<CardProps> = ({
 
   const saveButtonStyle: React.CSSProperties = {
     ...buttonStyle,
-    backgroundColor: 'rgba(92, 184, 92, 0.7)', // Полупрозрачный зеленый
-    borderColor: 'rgba(76, 174, 76, 0.7)',
+    backgroundColor: 'rgba(92, 184, 92, 0.7)',
+    // borderColor для saveButton также должен адаптироваться к editingControlsTextColor
+    borderColor: editingControlsTextColor === '#FFFFFF' ? 'rgba(76, 174, 76, 0.7)' : 'rgba(76, 174, 76, 0.5)', 
   };
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
-      textareaRef.current.style.height = 'auto'; // Сброс высоты перед пересчетом
+      textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [isEditing, editingText]);
@@ -184,15 +208,15 @@ const Card: React.FC<CardProps> = ({
     fontSize: fontSize,
     lineHeight: '1.5',
     fontFamily: 'inherit',
-    border: `1px solid ${getTextColor() === '#FFFFFF' ? 'rgba(255,255,255,0.3)': 'rgba(0,0,0,0.1)'}`,
+    border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.3)': 'rgba(0,0,0,0.1)'}`,
     borderRadius: '4px',
     boxSizing: 'border-box',
     marginBottom: '10px',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Очень легкий полупрозрачный фон
-    color: getTextAreaTextColor(), // Используем специальный цвет для textarea
-    resize: 'none', // Убираем стандартный ресайз
-    overflowY: 'hidden', // Скрываем скроллбар, так как высота будет динамической
-    transition: 'height 0.2s ease-out' // Плавное изменение высоты самой textarea
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    color: getTextAreaTextColor(), 
+    resize: 'none',
+    overflowY: 'hidden',
+    transition: 'height 0.2s ease-out'
   };
 
   const mergeButtonStyle: React.CSSProperties = {
@@ -209,51 +233,55 @@ const Card: React.FC<CardProps> = ({
     borderRadius: '50%',
     cursor: 'pointer',
     fontSize: '16px',
-    color: '#333',
-    zIndex: 5,
+    color: '#333', // Кнопка слияния обычно на белом фоне между карточками
+    zIndex: 25,
     boxShadow: '0 0 4px rgba(0,0,0,0.1)'
   };
 
   const editingControlsStyle: React.CSSProperties = {
     marginTop: '15px',
     paddingTop: '10px',
-    borderTop: `1px solid ${getTextColor() === '#FFFFFF' ? 'rgba(255,255,255,0.2)': 'rgba(0,0,0,0.1)'}` // Разделитель
+    borderTop: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.2)': 'rgba(0,0,0,0.1)'}`
   };
 
   const hintTextStyle: React.CSSProperties = {
     fontSize: `calc(${fontSize} * 0.75)`,
     fontStyle: 'italic',
-    opacity: 0.8, // Слегка приглушаем
+    opacity: 0.8,
     marginBottom: '10px',
-    color: getTextColor() // Используем основной цвет текста карточки
+    color: editingControlsTextColor // Подсказка использует цвет элементов управления редактированием
   };
   
   const deleteButtonStyle: React.CSSProperties = {
     position: 'absolute',
-    top: '4px',       // Скорректировано
-    right: '8px',      // Скорректировано
+    top: '4px',
+    right: '8px',
     background: 'none',
     border: 'none',
-    color: getTextColor(),
+    color: headerTextColor, // Кнопка удаления в шапке использует цвет текста шапки
     fontSize: `calc(${fontSize} * 1.3)`,
     cursor: 'pointer',
-    padding: '0px 2px', // Скорректировано
+    padding: '0px 2px',
     lineHeight: '1',
     opacity: 0.6,
     transition: 'opacity 0.2s ease',
-    zIndex: 20 // Увеличено
+    zIndex: 20 
   };
+  
+  // Определяем paddingLeft для основного блока с информацией в шапке
+  // Это значение должно быть достаточным, чтобы вместить иконку перетаскивания и кнопку X, когда они видимы
+  // Иконка перетаскивания (⋮⋮) примерно 10-12px + отступ, кнопка X еще ~15px. Возьмем с запасом.
+  const headerInfoPaddingLeft = '30px'; // Фиксированный отступ
 
   return (
     <div style={{ position: 'relative', marginBottom: '1px' }}>
-      <div style={cardWrapperStyle}> {/* Общая обертка с фоном и переходом высоты */}
+      <div style={cardWrapperStyle}> 
         <div style={headerStyle}>
-          {/* Кнопка удаления */} 
           {!isEditing && (
             <button 
               style={deleteButtonStyle}
               onClick={(e) => { 
-                e.stopPropagation(); // Предотвращаем всплытие до onClick={onStartEditing}
+                e.stopPropagation(); 
                 onDeleteRequest(paragraph.id);
               }}
               title="Удалить абзац"
@@ -269,13 +297,12 @@ const Card: React.FC<CardProps> = ({
             alignItems: 'center', 
             gap: '6px',
             flex: '1',
-            paddingLeft: isEditing ? '30px' : '15px',
+            paddingLeft: headerInfoPaddingLeft, // Используем фиксированный отступ
             height: '100%'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
               <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>ID: {paragraph.id}</div>
             </div>
-            
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
               <span style={{ display: 'flex', alignItems: 'center', height: '100%' }}>Сигнал:</span>
               <div style={{ 
@@ -291,13 +318,12 @@ const Card: React.FC<CardProps> = ({
                   style={{ 
                     width: `${normalizedSignal * 100}%`, 
                     height: '100%', 
-                    backgroundColor: getBackgroundColor(), // Этот фон должен быть равен фону карточки
+                    backgroundColor: cardContentBgColor, // Используем основной фон контента
                     transition: 'width 0.3s ease-in-out'
                   }} 
                 />
               </div>
             </div>
-            
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
               <span style={{ display: 'flex', alignItems: 'center', height: '100%' }}>Сложность:</span>
               <div style={{ 
@@ -313,13 +339,12 @@ const Card: React.FC<CardProps> = ({
                   style={{ 
                     width: `${normalizedComplexity * 100}%`, 
                     height: '100%', 
-                    backgroundColor: getTextColor(), // Этот фон должен быть равен цвету текста карточки
+                    backgroundColor: getComplexityBarColor(),
                     transition: 'width 0.3s ease-in-out'
                   }} 
                 />
               </div>
             </div>
-            
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
               <span style={{ display: 'flex', alignItems: 'center', height: '100%', fontWeight: 'bold' }}>Семантика:</span>
               <div style={{ 
@@ -332,11 +357,11 @@ const Card: React.FC<CardProps> = ({
               }}>
                 {paragraph.metrics.semantic_function ? (
                   <>
-                    <SemanticIcon semanticFunction={paragraph.metrics.semantic_function} size={18} /> {/* Уменьшил размер иконки */}
-                    <span style={{ color: getTextColor() }}>{paragraph.metrics.semantic_function}</span>
+                    <SemanticIcon semanticFunction={paragraph.metrics.semantic_function} size={18} />
+                    <span style={{ color: headerTextColor }}>{paragraph.metrics.semantic_function}</span> {/* Текст семантики в шапке использует headerTextColor */}
                   </>
                 ) : (
-                  <span style={{color: getTextColor()}}>Не определено</span>
+                  <span style={{color: headerTextColor}}>Не определено</span>
                 )}
                 {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
               </div>
@@ -358,7 +383,7 @@ const Card: React.FC<CardProps> = ({
                 onChange={handleTextareaChange}
                 style={textareaStyle}
                 aria-label="Редактирование текста абзаца"
-                rows={1} // Для начального рендеринга, чтобы JS мог определить высоту
+                rows={1}
               />
               <div style={editingControlsStyle}>
                 <div style={hintTextStyle}>
@@ -374,7 +399,7 @@ const Card: React.FC<CardProps> = ({
                   </button>
                   <button
                     onClick={onSave}
-                    disabled={isSaving} // Кнопка "Сохранить" активна всегда, кроме состояния isSaving
+                    disabled={isSaving} 
                     style={isSaving ? {...saveButtonStyle, opacity: 0.5, cursor: 'not-allowed'} : saveButtonStyle}
                     title={editingText.trim() === '' ? "Сохранение пустого абзаца приведет к его удалению" : "Сохранить изменения"}
                   >
@@ -384,7 +409,7 @@ const Card: React.FC<CardProps> = ({
               </div>
             </div>
           ) : (
-            <p style={textStyle}>{paragraph.text || ' '} {/* Добавил пробел для пустых абзацев, чтобы min-height работал*/}</p>
+            <p style={textStyle}>{paragraph.text || ' '} </p>
           )}
         </div>
       </div>

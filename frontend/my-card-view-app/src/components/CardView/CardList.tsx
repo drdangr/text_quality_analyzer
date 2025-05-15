@@ -355,6 +355,22 @@ const CardList: React.FC<CardListProps> = ({
   const inputStyle: React.CSSProperties = { padding: '5px', borderRadius: '3px', border: '1px solid #ccc', width: '80px' };
   const colorInputStyle: React.CSSProperties = { ...inputStyle, width: '50px', height: '25px', padding: '2px' }; 
   const selectStyle: React.CSSProperties = { padding: '5px', borderRadius: '3px', border: '1px solid #ccc' };
+  
+  const summaryTextStyle: React.CSSProperties = {
+    marginBottom: '10px', 
+    fontSize: '0.9rem', 
+    color: '#666',
+    padding: '8px 12px',
+    backgroundColor: '#f7f7f7',
+    borderRadius: '4px',
+    border: '1px solid #eee',
+    textAlign: 'center'
+  };
+
+  const formatMetric = (value: number | null | undefined): string => {
+    if (value === null || typeof value === 'undefined') return 'N/A';
+    return value.toFixed(2); // Округляем до 2 знаков после запятой
+  };
 
   return (
     <div style={{ maxWidth: '950px', margin: '20px auto', padding: '0 15px' }}>
@@ -540,7 +556,9 @@ const CardList: React.FC<CardListProps> = ({
         </div>
       )}
       
-      <div style={{ marginBottom: '10px', fontSize: '0.9rem', color: '#666' }}>
+      <div style={summaryTextStyle}>
+        Сложность текста: <strong>{formatMetric(sessionData.metadata.avg_complexity)}</strong> | 
+        Сигнал/Шум: <strong>{formatMetric(sessionData.metadata.avg_signal_strength)}</strong> | 
         Показано абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length}
       </div>
 
