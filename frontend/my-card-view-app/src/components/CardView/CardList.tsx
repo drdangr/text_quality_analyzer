@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Card from './Card';
 import type { ParagraphData, AnalysisResponse } from './types'; // Используем AnalysisResponse
-import { updateParagraph, refreshFullSemanticAnalysis } from '../../api'; // Убрали fetchAnalysis, т.к. сессия приходит как prop // Добавили refreshFullSemanticAnalysis
+import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs } from '../../api'; // Убрали fetchAnalysis, т.к. сессия приходит как prop // Добавили refreshFullSemanticAnalysis и mergeParagraphs
 
 // Типы для сортировки и фильтрации
 type SortField = 'id' | 'signal_strength' | 'complexity' | 'semantic_function'; // id вместо paragraph_id
@@ -10,8 +10,8 @@ type SortDirection = 'asc' | 'desc';
 // Цвета по умолчанию (можно вынести в константы или настройки)
 const DEFAULT_SIGNAL_MIN_COLOR = "#FFFFFF"; 
 const DEFAULT_SIGNAL_MAX_COLOR = "#FFDB58"; 
-const DEFAULT_COMPLEXITY_MIN_COLOR = "#FFFFFF"; // Изменил на белый для лучшего контраста с зеленым/красным текстом на карточке
-const DEFAULT_COMPLEXITY_MAX_COLOR = "#FF6347"; // Томатный, для примера
+const DEFAULT_COMPLEXITY_MIN_COLOR = "#00FF00"; // Зеленый
+const DEFAULT_COMPLEXITY_MAX_COLOR = "#FF0000"; // Красный
 
 interface CardListProps {
   initialSession: AnalysisResponse;
@@ -50,6 +50,7 @@ const CardList: React.FC<CardListProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
   const [isRefreshingSemantics, setIsRefreshingSemantics] = useState<boolean>(false);
+  const [isMergingParagraphs, setIsMergingParagraphs] = useState<boolean>(false);
 
   // Обновляем состояние, если изменилась initialSession (например, после сброса и нового анализа или рефреша семантики)
   useEffect(() => {
@@ -148,6 +149,56 @@ const CardList: React.FC<CardListProps> = ({
     }
   };
 
+  const handleMergeUp = async (index: number) => {
+    if (index <= 0 || isMergingParagraphs || editingParagraphId !== null) return;
+    
+    setIsMergingParagraphs(true);
+    setCurrentError(null);
+    try {
+      const updatedSession = await mergeParagraphs(
+        sessionData.metadata.session_id,
+        index - 1, // Предыдущий абзац
+        index // Текущий абзац
+      );
+      
+      // Обновляем все данные сессии, т.к. при слиянии меняются индексы абзацев
+      setSessionData(updatedSession);
+      setParagraphs(updatedSession.paragraphs);
+      markSemanticsAsStale(); // Помечаем, что семантика может быть неактуальна
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при слиянии абзацев';
+      setCurrentError(errorMsg);
+      console.error('Merge error:', e);
+    } finally {
+      setIsMergingParagraphs(false);
+    }
+  };
+
+  const handleMergeDown = async (index: number) => {
+    if (index >= paragraphs.length - 1 || isMergingParagraphs || editingParagraphId !== null) return;
+    
+    setIsMergingParagraphs(true);
+    setCurrentError(null);
+    try {
+      const updatedSession = await mergeParagraphs(
+        sessionData.metadata.session_id,
+        index, // Текущий абзац
+        index + 1 // Следующий абзац
+      );
+      
+      // Обновляем все данные сессии, т.к. при слиянии меняются индексы абзацев
+      setSessionData(updatedSession);
+      setParagraphs(updatedSession.paragraphs);
+      markSemanticsAsStale(); // Помечаем, что семантика может быть неактуальна
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при слиянии абзацев';
+      setCurrentError(errorMsg);
+      console.error('Merge error:', e);
+    } finally {
+      setIsMergingParagraphs(false);
+    }
+  };
+
   const sortedAndFilteredParagraphs = useMemo(() => {
     let result = [...paragraphs];
     if (semanticFilter !== 'all') {
@@ -186,8 +237,21 @@ const CardList: React.FC<CardListProps> = ({
 
   return (
     <div style={{ maxWidth: '950px', margin: '20px auto', padding: '0 15px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '1.6rem', color: '#333' }}>{sessionData.metadata.topic || "Анализ текста"}</h1>
+      {/* Шапка с темой и кнопками */}
+      <div style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        background: '#fff',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        minHeight: '60px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0',
+        padding: '0 10px',
+      }}>
+        <h1 style={{ fontSize: '1.6rem', color: '#333', margin: 0 }}>{sessionData.metadata.topic || "Анализ текста"}</h1>
         <div style={{display: 'flex', gap: '10px'}}>
           {!isSemanticAnalysisUpToDate && (
             <button 
@@ -205,60 +269,43 @@ const CardList: React.FC<CardListProps> = ({
       </div>
 
       {/* Панель управления */} 
-      <div style={controlPanelStyle}>
-        {/* Размер шрифта */}
-        <div style={controlGroupStyle}>
-          <label htmlFor="fontSizeInput" style={labelStyle}>Размер шрифта (pt):</label>
-          <input id="fontSizeInput" type="number" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{...inputStyle, width: '60px'}} />
-        </div>
-        {/* Сигнал */}
-        <div style={controlGroupStyle}>
-          <label style={labelStyle}>Сигнал (диапазон: {globalSignalRange.min.toFixed(3)} - {globalSignalRange.max.toFixed(3)})</label>
-          <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
-            Мин: <input type="number" step="0.01" value={uiSignalMin} onChange={e => setUiSignalMin(parseFloat(e.target.value))} style={inputStyle} title="Мин. значение для шкалы сигнала" />
-            Цвет: <input type="color" value={signalMinColor} onChange={e => setSignalMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сигнала" />
-            Макс: <input type="number" step="0.01" value={uiSignalMax} onChange={e => setUiSignalMax(parseFloat(e.target.value))} style={inputStyle} title="Макс. значение для шкалы сигнала" />
-            Цвет: <input type="color" value={signalMaxColor} onChange={e => setSignalMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сигнала" />
+      <div style={{
+        position: 'sticky',
+        top: 60,
+        zIndex: 9,
+        background: '#fff',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+        marginBottom: '20px',
+        padding: '15px',
+        borderRadius: '4px',
+      }}>
+        <div style={controlPanelStyle}>
+          {/* Размер шрифта */}
+          <div style={controlGroupStyle}>
+            <label htmlFor="fontSizeInput" style={labelStyle}>Размер шрифта (pt):</label>
+            <input id="fontSizeInput" type="number" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{...inputStyle, width: '60px'}} />
           </div>
-        </div>
-        {/* Сложность */}
-        <div style={controlGroupStyle}>
-          <label style={labelStyle}>Сложность (диапазон: {globalComplexityRange.min.toFixed(3)} - {globalComplexityRange.max.toFixed(3)})</label>
-          <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
-            Мин: <input type="number" step="0.01" value={uiComplexityMin} onChange={e => setUiComplexityMin(parseFloat(e.target.value))} style={inputStyle} title="Мин. значение для шкалы сложности"/>
-            Цвет: <input type="color" value={complexityMinColor} onChange={e => setComplexityMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сложности" />
-            Макс: <input type="number" step="0.01" value={uiComplexityMax} onChange={e => setUiComplexityMax(parseFloat(e.target.value))} style={inputStyle} title="Макс. значение для шкалы сложности" />
-            Цвет: <input type="color" value={complexityMaxColor} onChange={e => setComplexityMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сложности" />
+          {/* Сигнал (цвета) */}
+          <div style={controlGroupStyle}>
+            <label style={labelStyle}>Настройка цветов для Сигнала</label>
+            <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
+              Мин: <input type="color" value={signalMinColor} onChange={e => setSignalMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сигнала" />
+              Макс: <input type="color" value={signalMaxColor} onChange={e => setSignalMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сигнала" />
+            </div>
           </div>
-        </div>
-        {/* Сортировка */}
-        <div style={controlGroupStyle}>
-          <label htmlFor="sortField" style={labelStyle}>Сортировать по:</label>
-          <select id="sortField" value={sortField} onChange={(e) => setSortField(e.target.value as SortField)} style={selectStyle}>
-            <option value="id">ID</option>
-            <option value="signal_strength">Сигнал</option>
-            <option value="complexity">Сложность</option>
-            <option value="semantic_function">Семантика</option>
-          </select>
-        </div>
-        <div style={controlGroupStyle}>
-          <label htmlFor="sortDirection" style={labelStyle}>Направление:</label>
-          <select id="sortDirection" value={sortDirection} onChange={(e) => setSortDirection(e.target.value as SortDirection)} style={selectStyle}>
-            <option value="asc">По возрастанию</option>
-            <option value="desc">По убыванию</option>
-          </select>
-        </div>
-        {/* Фильтр по семантике */}
-        <div style={controlGroupStyle}>
-          <label htmlFor="semanticFilter" style={labelStyle}>Фильтр по семантике:</label>
-          <select id="semanticFilter" value={semanticFilter} onChange={(e) => setSemanticFilter(e.target.value)} style={selectStyle}>
-            {availableSemanticFunctions.map(func => <option key={func} value={func}>{func}</option>)}
-          </select>
-        </div>
-        {/* Поиск по тексту */}
-        <div style={controlGroupStyle}>
-          <label htmlFor="searchQuery" style={labelStyle}>Поиск по тексту:</label>
-          <input id="searchQuery" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{...inputStyle, width: '150px'}} placeholder="Введите текст..." />
+          {/* Сложность (цвета) */}
+          <div style={controlGroupStyle}>
+            <label style={labelStyle}>Настройка цветов для Сложности</label>
+            <div style={{display: 'flex', gap: '5px', alignItems: 'center'}}>
+              Мин: <input type="color" value={complexityMinColor} onChange={e => setComplexityMinColor(e.target.value)} style={colorInputStyle} title="Цвет для мин. сложности" />
+              Макс: <input type="color" value={complexityMaxColor} onChange={e => setComplexityMaxColor(e.target.value)} style={colorInputStyle} title="Цвет для макс. сложности" />
+            </div>
+          </div>
+          {/* Поиск по тексту */}
+          <div style={controlGroupStyle}>
+            <label htmlFor="searchQuery" style={labelStyle}>Поиск по тексту:</label>
+            <input id="searchQuery" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{...inputStyle, width: '150px'}} placeholder="Введите текст..." />
+          </div>
         </div>
       </div>
 
@@ -272,7 +319,7 @@ const CardList: React.FC<CardListProps> = ({
         Показано абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length}
       </div>
 
-      {sortedAndFilteredParagraphs.map((p) => (
+      {sortedAndFilteredParagraphs.map((p, index) => (
         <Card
           key={p.id} // Используем p.id
           paragraph={p}
@@ -292,6 +339,9 @@ const CardList: React.FC<CardListProps> = ({
           onSave={handleSaveEditing}
           onCancel={handleCancelEditing}
           isSaving={isSaving}
+          isFirst={index === 0}
+          isLast={index === sortedAndFilteredParagraphs.length - 1}
+          onMergeDown={() => handleMergeDown(index)}
         />
       ))}
     </div>

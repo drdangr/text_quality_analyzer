@@ -316,3 +316,47 @@ class AnalysisOrchestrator:
             'text': row['text'],
             'metrics': metrics_dict
         }
+
+    async def merge_paragraphs(self, session_id: str, paragraph_id_1: int, paragraph_id_2: int) -> Optional[Dict[str, Any]]:
+        """
+        Объединяет два абзаца в один, пересчитывает метрики и возвращает обновлённую сессию.
+        """
+        logger.info(f"[Orchestrator] merge_paragraphs: session_id={session_id}, paragraph_id_1={paragraph_id_1}, paragraph_id_2={paragraph_id_2}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для слияния абзацев.")
+            return None
+        df = analysis_data["df"]
+        topic = analysis_data["topic"]
+
+        # Проверяем, что оба абзаца существуют
+        if not (0 <= paragraph_id_1 < len(df)) or not (0 <= paragraph_id_2 < len(df)):
+            logger.error(f"[Orchestrator] Один из абзацев не найден: {paragraph_id_1}, {paragraph_id_2}")
+            return None
+
+        # Определяем порядок (на всякий случай)
+        idx1, idx2 = sorted([paragraph_id_1, paragraph_id_2])
+        text1 = str(df.loc[idx1, 'text'])
+        text2 = str(df.loc[idx2, 'text'])
+        merged_text = (text1.rstrip() + '\n' + text2.lstrip()).replace('\n\n', '\n').strip()
+
+        # Удаляем оба абзаца
+        df = df.drop([idx1, idx2]).reset_index(drop=True)
+        # Вставляем новый абзац на место первого
+        new_row = pd.DataFrame({
+            'paragraph_id': [idx1],
+            'text': [merged_text]
+        })
+        df = pd.concat([df.iloc[:idx1], new_row, df.iloc[idx1:]], ignore_index=True)
+        # Перенумеровываем paragraph_id
+        df['paragraph_id'] = range(len(df))
+
+        # Пересчитываем метрики только для нового абзаца
+        new_df = await self._run_analysis_pipeline([merged_text], topic)
+        for col in ['lix', 'smog', 'complexity', 'signal_strength', 'semantic_function', 'semantic_method', 'semantic_error']:
+            if col in new_df.columns:
+                df.loc[idx1, col] = new_df.iloc[0][col]
+
+        self.session_store.save_analysis(session_id, df, topic)
+        logger.info(f"[Orchestrator] Абзацы {paragraph_id_1} и {paragraph_id_2} объединены в сессии {session_id}.")
+        return self._format_analysis_result(df, topic, session_id)

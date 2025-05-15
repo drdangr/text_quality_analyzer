@@ -19,6 +19,9 @@ interface CardProps {
   onSave: () => void;
   onCancel: () => void;
   isSaving: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onMergeDown: () => void;
 }
 
 // Вспомогательная функция для парсинга HEX в RGB
@@ -48,7 +51,10 @@ const Card: React.FC<CardProps> = ({
   onStartEditing,
   onSave,
   onCancel,
-  isSaving
+  isSaving,
+  isFirst,
+  isLast,
+  onMergeDown
 }) => {
   // Функция для линейной интерполяции между двумя значениями
   const lerp = (start: number, end: number, t: number) => {
@@ -108,6 +114,7 @@ const Card: React.FC<CardProps> = ({
   const textStyle: React.CSSProperties = {
     lineHeight: '1.6',
     whiteSpace: 'pre-wrap',
+    textAlign: 'left',
   };
 
   const buttonStyle: React.CSSProperties = {
@@ -141,101 +148,133 @@ const Card: React.FC<CardProps> = ({
     marginBottom: '10px'
   };
 
-  return (
-    <div style={cardStyle}>
-      <div style={metaInfoStyle}>
-        <div>
-          ID: {paragraph.id} | 
-          Сигнал: {(paragraph.metrics.signal_strength ?? 0).toFixed(3)} | 
-          Сложность: {(paragraph.metrics.complexity ?? 0).toFixed(3)} | 
-          Семантика: {paragraph.metrics.semantic_function || 'Не определено'}
-          {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
-        </div>
-        
-        {!isEditing && (
-          <button 
-            onClick={onStartEditing}
-            style={buttonStyle}
-            title="Редактировать текст абзаца"
-          >
-            Редактировать
-          </button>
-        )}
-      </div>
-      
-      {isEditing ? (
-        <div>
-          <textarea
-            value={editingText}
-            onChange={(e) => onEditingTextChange(e.target.value)}
-            style={textareaStyle}
-            aria-label="Редактирование текста абзаца"
-          />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button
-              onClick={onCancel}
-              disabled={isSaving}
-              style={buttonStyle}
-            >
-              Отмена
-            </button>
-            <button
-              onClick={onSave}
-              disabled={isSaving}
-              style={saveButtonStyle}
-            >
-              {isSaving ? 'Сохранение...' : 'Сохранить'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <p style={textStyle}>{paragraph.text}</p>
-      )}
+  const mergeButtonStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: '24px',
+    height: '24px',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    border: '1px solid #ccc',
+    borderRadius: '50%',
+    cursor: 'pointer',
+    fontSize: '16px',
+    color: '#333',
+    zIndex: 2,
+    boxShadow: '0 0 4px rgba(0,0,0,0.1)'
+  };
 
-      {/* Визуальные индикаторы метрик */} 
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        marginTop: '15px',
-        fontSize: `calc(${fontSize} * 0.7)`,
-        color: '#555'
-      }}>
-        <div>
-          <div style={{ marginBottom: '2px' }}>Сигнал:</div>
-          <div style={{ 
-            width: '100px', 
-            height: '8px', 
-            backgroundColor: '#e9ecef',
-            borderRadius: '4px',
-            overflow: 'hidden' 
-          }}>
-            <div title={`Сигнал: ${(paragraph.metrics.signal_strength ?? 0).toFixed(3)}`} style={{ 
-              width: `${normalizedSignal * 100}%`, 
-              height: '100%', 
-              backgroundColor: signalMaxColor,
-              transition: 'width 0.3s ease-in-out'
-            }} />
+  return (
+    <div style={{ position: 'relative', marginBottom: '15px' }}>
+      <div style={cardStyle}>
+        <div style={metaInfoStyle}>
+          <div>
+            ID: {paragraph.id} | 
+            Сигнал: {(paragraph.metrics.signal_strength ?? 0).toFixed(3)} | 
+            Сложность: {(paragraph.metrics.complexity ?? 0).toFixed(3)} | 
+            Семантика: {paragraph.metrics.semantic_function || 'Не определено'}
+            {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
           </div>
+          
+          {!isEditing && (
+            <button 
+              onClick={onStartEditing}
+              style={buttonStyle}
+              title="Редактировать текст абзаца"
+            >
+              Редактировать
+            </button>
+          )}
         </div>
         
-        <div>
-          <div style={{ marginBottom: '2px' }}>Сложность:</div>
-          <div style={{ 
-            width: '100px', 
-            height: '8px', 
-            backgroundColor: '#e9ecef',
-            borderRadius: '4px',
-            overflow: 'hidden'
-          }}>
-            <div title={`Сложность: ${(paragraph.metrics.complexity ?? 0).toFixed(3)}`} style={{ 
-              width: `${normalizedComplexity * 100}%`, 
-              height: '100%', 
-              backgroundColor: complexityMaxColor,
-              transition: 'width 0.3s ease-in-out'
-            }} />
+        {isEditing ? (
+          <div>
+            <textarea
+              value={editingText}
+              onChange={(e) => onEditingTextChange(e.target.value)}
+              style={textareaStyle}
+              aria-label="Редактирование текста абзаца"
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                onClick={onCancel}
+                disabled={isSaving}
+                style={buttonStyle}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={onSave}
+                disabled={isSaving}
+                style={saveButtonStyle}
+              >
+                {isSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p style={textStyle}>{paragraph.text}</p>
+        )}
+
+        {/* Визуальные индикаторы метрик */} 
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          marginTop: '15px',
+          fontSize: `calc(${fontSize} * 0.7)`,
+          color: '#555'
+        }}>
+          <div style={{ marginBottom: '8px'}}>
+            <div style={{ marginBottom: '2px' }}>Сигнал:</div>
+            <div style={{ 
+              width: '100px', 
+              height: '8px', 
+              backgroundColor: '#e9ecef',
+              borderRadius: '4px',
+              overflow: 'hidden' 
+            }}>
+              <div title={`Сигнал: ${(paragraph.metrics.signal_strength ?? 0).toFixed(3)}`} style={{ 
+                width: `${normalizedSignal * 100}%`, 
+                height: '100%', 
+                backgroundColor: signalMaxColor,
+                transition: 'width 0.3s ease-in-out'
+              }} />
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ marginBottom: '2px' }}>Сложность:</div>
+            <div style={{ 
+              width: '100px', 
+              height: '8px', 
+              backgroundColor: '#e9ecef',
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div title={`Сложность: ${(paragraph.metrics.complexity ?? 0).toFixed(3)}`} style={{ 
+                width: `${normalizedComplexity * 100}%`, 
+                height: '100%', 
+                backgroundColor: complexityMaxColor,
+                transition: 'width 0.3s ease-in-out'
+              }} />
+            </div>
           </div>
         </div>
       </div>
+
+      {!isLast && !isEditing && (
+        <div 
+          onClick={onMergeDown}
+          style={{ ...mergeButtonStyle, bottom: '-12px' }}
+          title="Объединить со следующим абзацем"
+        >
+          +
+        </div>
+      )}
     </div>
   );
 };

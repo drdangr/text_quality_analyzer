@@ -83,12 +83,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "data/sample_text.md",
+                "file": "data/Объяснение эмбеддингов, токенов и чанкинга.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "sample_text"
+              "title": "Объяснение эмбеддингов, токенов и чанкинга"
             }
           }
         ],
@@ -213,27 +213,17 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "docs/Text Analysis Prototype.md",
+                "file": "data/Объяснение эмбеддингов, токенов и чанкинга.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Структура Text Analysis Prototype"
-            }
-          },
-          {
-            "id": "e943eca4eeec8ab0",
-            "type": "leaf",
-            "state": {
-              "type": "git-view",
-              "state": {},
-              "icon": "git-pull-request",
-              "title": "Source Control"
+              "title": "Структура Объяснение эмбеддингов, токенов и чанкинга"
             }
           }
         ],
-        "currentTab": 4
+        "currentTab": 3
       }
     ],
     "direction": "horizontal",
@@ -252,6 +242,8 @@
   },
   "active": "44838a176e33f1b7",
   "lastOpenFiles": [
+    "logs/app_2025-05-14.log",
+    "api/__pycache__/models.cpython-310.pyc.139911774446256",
     "frontend/my-card-view-app/dist/assets/index-CJw-R7Qx.js",
     "api/__pycache__/orchestrator.cpython-310.pyc.140154953009056",
     "api/__pycache__/routes.cpython-310.pyc.140154952983024",
@@ -263,8 +255,6 @@
     "frontend/my-card-view-app/dist/config.json",
     "frontend/my-card-view-app/dist/vite.svg",
     "frontend/my-card-view-app/dist/card_view_data.json",
-    "frontend/my-card-view-app/dist",
-    "frontend/my-card-view-app/src/components/TextInput.tsx",
     "docs/Strategy of Transit.md",
     "docs/Optimization.md",
     "docs/Text Analysis Prototype.md",

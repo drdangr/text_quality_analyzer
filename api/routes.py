@@ -9,6 +9,7 @@ from api.models import (
     ParagraphUpdateRequest,
     ParagraphData,
     AnalysisResponse,
+    ParagraphsMergeRequest,
     # ExportRequest # Пока не используем, экспорт через GET
 )
 
@@ -187,3 +188,35 @@ async def export_analysis_endpoint(
     except Exception as e:
         logger.error(f"Критическая ошибка в эндпоинте /export/{session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during export: {e}")
+
+@router.post("/merge-paragraphs", response_model=AnalysisResponse, summary="Объединить два абзаца в один")
+async def merge_paragraphs_endpoint(
+    request_data: ParagraphsMergeRequest = Body(...),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Объединяет два абзаца в один в рамках существующей сессии анализа.
+    
+    - **session_id**: ID активной сессии анализа.
+    - **paragraph_id_1**: ID первого абзаца для слияния.
+    - **paragraph_id_2**: ID второго абзаца для слияния.
+    
+    При слиянии тексты абзацев объединяются, удаляя двойные переводы строк.
+    Для нового объединённого абзаца заново рассчитываются все метрики.
+    """
+    logger.info(f"API /merge-paragraphs вызван. Session ID: {request_data.session_id}, Paragraphs: {request_data.paragraph_id_1} и {request_data.paragraph_id_2}")
+    try:
+        merge_result = await orchestrator.merge_paragraphs(
+            session_id=request_data.session_id,
+            paragraph_id_1=request_data.paragraph_id_1,
+            paragraph_id_2=request_data.paragraph_id_2
+        )
+        if merge_result is None:
+            logger.warning(f"Не удалось объединить абзацы для сессии {request_data.session_id}. Сессия не найдена или абзацы не существуют.")
+            raise HTTPException(status_code=404, detail=f"Failed to merge paragraphs. Session not found or paragraphs don't exist.")
+        return merge_result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте /merge-paragraphs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during paragraphs merge: {e}")

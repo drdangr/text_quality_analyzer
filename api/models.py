@@ -65,6 +65,12 @@ class ExportRequest(BaseModel):
     session_id: str
     format: str = Field("csv", pattern="^(csv|json)$")
 
+class ParagraphsMergeRequest(BaseModel):
+    """Модель запроса для слияния двух абзацев."""
+    session_id: str = Field(..., description="ID сессии, в рамках которой происходит слияние")
+    paragraph_id_1: int = Field(..., ge=0, description="ID первого абзаца для слияния")
+    paragraph_id_2: int = Field(..., ge=0, description="ID второго абзаца для слияния")
+
 # Модель для ответа при ошибках (пример)
 # class ErrorResponse(BaseModel):
 #     detail: str

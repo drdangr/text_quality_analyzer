@@ -116,6 +116,29 @@ export async function refreshFullSemanticAnalysis(sessionId: string): Promise<An
     return response.json() as Promise<AnalysisResponse>;
 }
 
+// Слияние двух абзацев в один
+export async function mergeParagraphs(
+    sessionId: string,
+    paragraph_id_1: number,
+    paragraph_id_2: number
+): Promise<AnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/merge-paragraphs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            paragraph_id_1,
+            paragraph_id_2
+        }),
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
 // --- Logger (простой, для использования в handleResponseError) ---
 // В реальном приложении лучше использовать более продвинутый логгер или систему мониторинга
 const logger = {
