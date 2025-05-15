@@ -106,7 +106,7 @@ const Card: React.FC<CardProps> = ({
   };
 
   const headerStyle: React.CSSProperties = {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f6f6',
     padding: '6px 15px',
     borderBottom: '1px solid #eee',
     fontSize: `calc(${fontSize} * 0.75)`,
@@ -207,7 +207,7 @@ const Card: React.FC<CardProps> = ({
                   style={{ 
                     width: `${normalizedSignal * 100}%`, 
                     height: '100%', 
-                    backgroundColor: signalMaxColor,
+                    backgroundColor: getBackgroundColor(),
                     transition: 'width 0.3s ease-in-out'
                   }} 
                 />
@@ -229,7 +229,7 @@ const Card: React.FC<CardProps> = ({
                   style={{ 
                     width: `${normalizedComplexity * 100}%`, 
                     height: '100%', 
-                    backgroundColor: complexityMaxColor,
+                    backgroundColor: getTextColor(),
                     transition: 'width 0.3s ease-in-out'
                   }} 
                 />
@@ -241,21 +241,15 @@ const Card: React.FC<CardProps> = ({
               {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
             </div>
           </div>
-          
-          {/* Кнопка "Редактировать" */}
-          {!isEditing && (
-            <button 
-              onClick={onStartEditing}
-              style={buttonStyle}
-              title="Редактировать текст абзаца"
-            >
-              Редактировать
-            </button>
-          )}
         </div>
 
         {/* Основное содержимое с цветным фоном */}
-        <div style={contentStyle}>
+        <div 
+          style={contentStyle} 
+          onClick={!isEditing ? onStartEditing : undefined}
+          role={!isEditing ? "button" : undefined}
+          aria-label={!isEditing ? "Нажмите для редактирования" : undefined}
+        >
           {isEditing ? (
             <div>
               <textarea

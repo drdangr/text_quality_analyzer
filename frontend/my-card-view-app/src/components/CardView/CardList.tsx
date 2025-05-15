@@ -92,6 +92,38 @@ const CardList: React.FC<CardListProps> = ({
     setUiComplexityMax(globalComplexityRange.max);
   }, [globalComplexityRange]);
 
+  // Вспомогательная функция для парсинга HEX в RGB
+  const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : null;
+  };
+
+  // Функция нормализации значения
+  const normalize = (value: number, min: number, max: number): number => {
+    if (max === min) return value >= max ? 1 : 0;
+    const N = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    return isNaN(N) ? 0 : N;
+  };
+
+  // Функция для получения цвета фона на основе уровня сигнала
+  const getBackgroundColorForSignal = (signal: number) => {
+    // Нормализуем значение сигнала
+    const normalizedSignal = normalize(signal, globalSignalRange.min, globalSignalRange.max);
+    
+    // Получаем цвет для текущего значения сигнала
+    const startColor = hexToRgb(signalMinColor) || { r: 255, g: 255, b: 255 };
+    const endColor = hexToRgb(signalMaxColor) || { r: 255, g: 219, b: 88 };
+    
+    const r = Math.round(startColor.r * (1 - normalizedSignal) + endColor.r * normalizedSignal);
+    const g = Math.round(startColor.g * (1 - normalizedSignal) + endColor.g * normalizedSignal);
+    const b = Math.round(startColor.b * (1 - normalizedSignal) + endColor.b * normalizedSignal);
+    
+    return `rgb(${r}, ${g}, ${b})`;
+  };
 
   const handleStartEditing = (paragraph: ParagraphData) => {
     setEditingParagraphId(paragraph.id);
@@ -401,6 +433,42 @@ const CardList: React.FC<CardListProps> = ({
           <div style={controlGroupStyle}>
             <label htmlFor="searchQuery" style={labelStyle}>Поиск по тексту:</label>
             <input id="searchQuery" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{...inputStyle, width: '150px'}} placeholder="Введите текст..." />
+          </div>
+        </div>
+        
+        {/* Тепловая карта распределения Сигнал/Шум */}
+        <div style={{ margin: '15px 0 0 0' }}>
+          <div style={{ fontSize: '0.9rem', color: '#555', marginBottom: '5px' }}>
+            Карта распределения соотношения Сигнал/Шум в документе:
+          </div>
+          <div style={{ 
+            display: 'flex', 
+            height: '15px', 
+            width: '100%', 
+            borderRadius: '4px',
+            overflow: 'hidden',
+            border: '1px solid #ddd'
+          }}>
+            {paragraphs.length > 0 && paragraphs.map((paragraph, idx) => {
+              const signal = paragraph.metrics.signal_strength || 0;
+              const normalizedSignal = normalize(signal, globalSignalRange.min, globalSignalRange.max);
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    flex: '1',
+                    height: '100%',
+                    backgroundColor: getBackgroundColorForSignal(signal)
+                  }}
+                  title={`ID: ${paragraph.id}, Сигнал/Шум: ${(normalizedSignal * 100).toFixed(1)}%`}
+                />
+              );
+            })}
+            {paragraphs.length === 0 && (
+              <div style={{ flex: '1', height: '100%', backgroundColor: '#eee' }}>
+                Нет данных
+              </div>
+            )}
           </div>
         </div>
       </div>
