@@ -236,8 +236,7 @@
       "canvas:Создать новый холст": false,
       "daily-notes:Сегодняшняя заметка": false,
       "templates:Вставить шаблон": false,
-      "command-palette:Открыть палитру команд": false,
-      "obsidian-git:Open Git source control": false
+      "command-palette:Открыть палитру команд": false
     }
   },
   "active": "44838a176e33f1b7",

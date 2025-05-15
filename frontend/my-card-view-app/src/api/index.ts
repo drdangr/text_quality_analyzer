@@ -211,16 +211,13 @@ const logger = {
     error: (...args: any[]) => console.error("[APIClient]", ...args),
 };
 
-// Загрузка демо-данных (оставляем как в вашем документе, если файлы существуют в public/)
-// Эта функция не использует API_BASE_URL, а загружает локальные JSON.
-export async function loadDemoData(): Promise<AnalysisResponse> { // Тип возврата изменен на AnalysisResponse
+// Загрузка демо-данных
+export async function loadDemoData(): Promise<AnalysisResponse> {
     try {
         // Загружаем локальные демо-данные
-        // Предполагается, что card_view_data.json содержит массив ParagraphData (или объектов, совместимых с ним)
-        // и config.json содержит { "topicName": "..." }
         const [paragraphsResponse, configResponse] = await Promise.all([
-            fetch('/card_view_data.json'), // Путь относительно public/
-            fetch('/config.json')         // Путь относительно public/
+            fetch('/card_view_data.json'),
+            fetch('/config.json')
         ]);
 
         if (!paragraphsResponse.ok) {
@@ -233,38 +230,17 @@ export async function loadDemoData(): Promise<AnalysisResponse> { // Тип во
         const rawParagraphs: any[] = await paragraphsResponse.json();
         const config = await configResponse.json();
         
-        // Адаптируем структуру rawParagraphs к ParagraphData[] с вложенными метриками
-        const paragraphs: ParagraphData[] = rawParagraphs.map((p, index) => ({
-            id: p.paragraph_id !== undefined ? p.paragraph_id : index, // Используем paragraph_id если есть, иначе индекс
-            text: p.text || "",
-            metrics: {
-                lix: p.lix,
-                smog: p.smog,
-                complexity: p.complexity,
-                signal_strength: p.signal_strength,
-                semantic_function: p.semantic_function,
-                semantic_method: p.semantic_method,
-                semantic_error: p.semantic_error,
-            }
-        }));        
-
-        const demoSession: AnalysisResponse = {
-            metadata: {
-                session_id: "demo-session-" + Date.now(), // Уникальный демо ID
-                topic: config.topicName || "Демонстрационные данные",
-                analysis_timestamp: new Date().toISOString(),
-                paragraph_count: paragraphs.length,
-                // avg_complexity и avg_signal_strength можно рассчитать, если нужно для демо
-                semantic_analysis_available: true, // Предполагаем, что для демо все доступно
-                semantic_analysis_status: "complete",
-                source: "demo_data" // Дополнительное поле для идентификации источника
-            },
-            paragraphs,
-        };
+        // Объединяем тексты всех абзацев в один текст
+        const fullText = rawParagraphs.map(p => p.text || "").join("\n\n");
         
-        return demoSession;
+        // Используем тему из конфига или устанавливаем значение по умолчанию
+        const topic = config.topicName || "Объяснение эмбеддингов, токенов и чанкинга";
+        
+        // Теперь вместо прямого возврата данных, создаем полноценную сессию через API
+        return initializeAnalysis(fullText, topic);
+        
     } catch (error) {
-        logger.error("Error loading demo data:", error);
-        throw new Error("Не удалось загрузить демонстрационные данные: " + (error instanceof Error ? error.message : String(error)));
+        console.error("Ошибка загрузки демо-данных:", error);
+        throw error;
     }
 } 

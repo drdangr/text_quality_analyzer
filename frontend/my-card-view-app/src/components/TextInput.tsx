@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
 interface TextInputProps {
   onSubmit: (text: string, topic: string) => void;
@@ -16,12 +16,50 @@ const TextInput: React.FC<TextInputProps> = ({
   const [text, setText] = useState<string>('');
   const [topic, setTopic] = useState<string>('');
   const [showInstructions, setShowInstructions] = useState<boolean>(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (text.trim() && topic.trim()) {
       onSubmit(text, topic);
     }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFileError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Проверяем тип файла (допускаем текстовые файлы)
+    if (!file.type.match('text.*') && !file.name.endsWith('.txt') && !file.name.endsWith('.md')) {
+      setFileError('Пожалуйста, загрузите текстовый файл (.txt, .md или другой текстовый формат)');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    
+    // Максимальный размер файла: 1MB
+    if (file.size > 1024 * 1024) {
+      setFileError('Размер файла не должен превышать 1MB');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setText(content || '');
+    };
+    
+    reader.onerror = () => {
+      setFileError('Ошибка при чтении файла');
+    };
+    
+    reader.readAsText(file);
+  };
+
+  const handleUploadButtonClick = () => {
+    fileInputRef.current?.click();
   };
 
   // Инлайн-стили (как в вашем документе)
@@ -89,6 +127,12 @@ const TextInput: React.FC<TextInputProps> = ({
     marginLeft: '15px'
   };
 
+  const uploadButtonStyle: React.CSSProperties = {
+    ...buttonStyle, // Наследуем основные стили
+    backgroundColor: '#f0ad4e', // Оранжевый
+    marginLeft: '15px'
+  };
+
   const errorStyle: React.CSSProperties = {
     color: '#a94442', // Темно-красный
     marginTop: '15px',
@@ -119,6 +163,10 @@ const TextInput: React.FC<TextInputProps> = ({
     lineHeight: '1.6'
   };
 
+  const fileInputStyle: React.CSSProperties = {
+    display: 'none'
+  };
+
   return (
     <div style={containerStyle}>
       <h1 style={titleStyle}>Анализатор Качества Текста</h1>
@@ -138,7 +186,7 @@ const TextInput: React.FC<TextInputProps> = ({
           <h3>Как использовать анализатор:</h3>
           <ol>
             <li><strong>Тема анализа:</strong> Введите ключевую тему или вопрос, относительно которого будет оцениваться текст.</li>
-            <li><strong>Текст для анализа:</strong> Вставьте или напишите текст, который вы хотите проанализировать. Абзацы разделяются пустой строкой.</li>
+            <li><strong>Текст для анализа:</strong> Вставьте, напишите текст или загрузите файл с текстом, который вы хотите проанализировать. Абзацы разделяются пустой строкой.</li>
             <li>Нажмите кнопку <strong>"Анализировать"</strong>.</li>
             <li>После анализа вы увидите карточки с результатами для каждого абзаца. Вы сможете их просматривать и редактировать.</li>
           </ol>
@@ -148,7 +196,7 @@ const TextInput: React.FC<TextInputProps> = ({
             <li><strong>Сложность (Complexity):</strong> Комплексный показатель удобочитаемости текста (0 до 1, где выше - сложнее).</li>
             <li><strong>Семантическая функция:</strong> Роль абзаца в контексте всего текста (например, "раскрытие темы", "пример", "шум").</li>
           </ul>
-          {onDemoDataClick && <p>Вы также можете <strong>Загрузить демо-данные</strong> для быстрого ознакомления с функционалом.</p>}
+          {onDemoDataClick && <p>Вы также можете <strong>Загрузить демо-данные</strong> для быстрого ознакомления с функционалом или <strong>Загрузить из файла</strong> для анализа содержимого текстового файла.</p>}
         </div>
       )}
       
@@ -184,6 +232,15 @@ const TextInput: React.FC<TextInputProps> = ({
           />
         </div>
         
+        {/* Скрытый input для загрузки файла */}
+        <input 
+          type="file" 
+          ref={fileInputRef}
+          style={fileInputStyle}
+          accept=".txt,.md,text/plain,text/markdown"
+          onChange={handleFileUpload}
+        />
+        
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <button
             type="submit"
@@ -192,6 +249,15 @@ const TextInput: React.FC<TextInputProps> = ({
             title={(!text.trim() || !topic.trim()) ? "Пожалуйста, заполните тему и текст" : "Начать анализ"}
           >
             {loading ? 'Анализ...' : 'Анализировать'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={handleUploadButtonClick}
+            style={uploadButtonStyle}
+            disabled={loading}
+          >
+            Загрузить из файла
           </button>
           
           {onDemoDataClick && (
@@ -209,6 +275,12 @@ const TextInput: React.FC<TextInputProps> = ({
         {error && (
           <div id="error-message" style={errorStyle} role="alert">
             <strong>Ошибка:</strong> {error}
+          </div>
+        )}
+        
+        {fileError && (
+          <div id="file-error-message" style={errorStyle} role="alert">
+            <strong>Ошибка загрузки файла:</strong> {fileError}
           </div>
         )}
       </form>
