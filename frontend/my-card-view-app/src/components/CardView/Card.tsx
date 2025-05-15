@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ParagraphData } from './types';
+import SemanticIcon from './SemanticIcon';
 
 interface CardProps {
   paragraph: ParagraphData;
@@ -107,7 +108,7 @@ const Card: React.FC<CardProps> = ({
 
   const headerStyle: React.CSSProperties = {
     backgroundColor: '#f8f6f6',
-    padding: '6px 15px',
+    padding: '3px 15px',
     borderBottom: '1px solid #eee',
     fontSize: `calc(${fontSize} * 0.75)`,
     color: '#555',
@@ -116,7 +117,8 @@ const Card: React.FC<CardProps> = ({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: '6px',
-    justifyContent: 'space-between'
+    justifyContent: 'space-between',
+    minHeight: '22px'  // Уменьшаем минимальную высоту для заголовка
   };
 
   const textStyle: React.CSSProperties = {
@@ -174,7 +176,7 @@ const Card: React.FC<CardProps> = ({
     cursor: 'pointer',
     fontSize: '16px',
     color: '#333',
-    zIndex: 2,
+    zIndex: 5,
     boxShadow: '0 0 4px rgba(0,0,0,0.1)'
   };
 
@@ -188,12 +190,16 @@ const Card: React.FC<CardProps> = ({
             flexWrap: 'wrap', 
             alignItems: 'center', 
             gap: '6px',
-            flex: '1'
+            flex: '1',
+            paddingLeft: '30px',
+            height: '100%'
           }}>
-            <div>ID: {paragraph.id}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>ID: {paragraph.id}</div>
+            </div>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <span>Сигнал:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
+              <span style={{ display: 'flex', alignItems: 'center', height: '100%' }}>Сигнал:</span>
               <div style={{ 
                 width: '60px', 
                 height: '6px', 
@@ -214,8 +220,8 @@ const Card: React.FC<CardProps> = ({
               </div>
             </div>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <span>Сложность:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
+              <span style={{ display: 'flex', alignItems: 'center', height: '100%' }}>Сложность:</span>
               <div style={{ 
                 width: '60px', 
                 height: '6px', 
@@ -236,9 +242,26 @@ const Card: React.FC<CardProps> = ({
               </div>
             </div>
             
-            <div>
-              Семантика: {paragraph.metrics.semantic_function || 'Не определено'}
-              {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '100%' }}>
+              <span style={{ display: 'flex', alignItems: 'center', height: '100%', fontWeight: 'bold' }}>Семантика:</span>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                backgroundColor: 'transparent', 
+                padding: '0', 
+                borderRadius: '0', 
+                border: 'none'
+              }}>
+                {paragraph.metrics.semantic_function ? (
+                  <>
+                    <SemanticIcon semanticFunction={paragraph.metrics.semantic_function} size={20} />
+                    <span style={{ color: '#333' }}>{paragraph.metrics.semantic_function}</span>
+                  </>
+                ) : (
+                  <span>Не определено</span>
+                )}
+                {paragraph.metrics.semantic_error && <span style={{color: 'red', marginLeft: '5px'}}>(Ошибка: {paragraph.metrics.semantic_error})</span>}
+              </div>
             </div>
           </div>
         </div>

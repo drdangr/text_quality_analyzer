@@ -11,6 +11,8 @@ from api.models import (
     AnalysisResponse,
     ParagraphsMergeRequest,
     ParagraphSplitRequest,
+    ParagraphsReorderRequest,
+    UpdateTopicRequest,
     # ExportRequest # Пока не используем, экспорт через GET
 )
 
@@ -225,25 +227,79 @@ async def split_paragraph_endpoint(
     orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
 ) -> AnalysisResponse:
     """
-    Разделяет абзац на два в указанной позиции в рамках существующей сессии анализа.
+    Разделяет один абзац на два в рамках существующей сессии анализа.
     
     - **session_id**: ID активной сессии анализа.
-    - **paragraph_id**: ID абзаца для разделения.
-    - **split_position**: Позиция символа, с которой начинается новый абзац.
+    - **paragraph_id**: ID абзаца, который нужно разделить.
+    - **split_position**: Позиция в тексте абзаца, с которой будет начинаться второй абзац.
     """
     logger.info(f"API /split-paragraph вызван. Session ID: {request_data.session_id}, Paragraph ID: {request_data.paragraph_id}, Split Position: {request_data.split_position}")
     try:
-        result = await orchestrator.split_paragraph(
+        updated_analysis = await orchestrator.split_paragraph(
             session_id=request_data.session_id,
             paragraph_id=request_data.paragraph_id,
             split_position=request_data.split_position
         )
-        if result is None:
-            logger.warning(f"Не удалось выполнить разделение абзаца для сессии {request_data.session_id}. Сессия не найдена или абзац не существует.")
-            raise HTTPException(status_code=404, detail="Session or paragraph not found, or invalid split position.")
-        return result
+        if updated_analysis is None:
+            logger.warning(f"Не удалось разделить абзац для сессии {request_data.session_id}, абзац {request_data.paragraph_id}.")
+            raise HTTPException(status_code=404, detail="Analysis session or paragraph not found, or split failed.")
+        return updated_analysis
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка в эндпоинте /split-paragraph: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during paragraph split: {e}")
+
+@router.post("/reorder-paragraphs", response_model=AnalysisResponse, summary="Изменить порядок абзацев")
+async def reorder_paragraphs_endpoint(
+    request_data: ParagraphsReorderRequest = Body(...),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Изменяет порядок абзацев в сессии анализа.
+    
+    - **session_id**: ID активной сессии анализа.
+    - **new_order**: Новый порядок абзацев (список ID абзацев в новом порядке).
+    """
+    logger.info(f"API /reorder-paragraphs вызван. Session ID: {request_data.session_id}")
+    try:
+        updated_analysis = await orchestrator.reorder_paragraphs(
+            session_id=request_data.session_id,
+            new_order=request_data.new_order
+        )
+        if updated_analysis is None:
+            logger.warning(f"Не удалось изменить порядок абзацев для сессии {request_data.session_id}. Сессия не найдена или некорректный порядок.")
+            raise HTTPException(status_code=404, detail="Session not found or invalid paragraph order.")
+        return updated_analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте /reorder-paragraphs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during paragraphs reordering: {e}")
+
+@router.post("/update-topic", response_model=AnalysisResponse, summary="Обновить тему анализа")
+async def update_topic_endpoint(
+    request_data: UpdateTopicRequest = Body(...),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Обновляет тему для указанной сессии анализа.
+    
+    - **session_id**: ID активной сессии анализа.
+    - **topic**: Новая тема анализа.
+    """
+    logger.info(f"API /update-topic вызван. Session ID: {request_data.session_id}")
+    try:
+        updated_analysis = await orchestrator.update_topic(
+            session_id=request_data.session_id,
+            new_topic=request_data.topic
+        )
+        if updated_analysis is None:
+            logger.warning(f"Не удалось обновить тему для сессии {request_data.session_id}. Сессия не найдена.")
+            raise HTTPException(status_code=404, detail="Session not found.")
+        return updated_analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в эндпоинте /update-topic: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during topic update: {e}")

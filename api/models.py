@@ -77,6 +77,16 @@ class ParagraphSplitRequest(BaseModel):
     paragraph_id: int = Field(..., ge=0, description="ID абзаца для разделения")
     split_position: int = Field(..., ge=0, description="Позиция символа, с которой начинается новый абзац")
 
+class ParagraphsReorderRequest(BaseModel):
+    """Модель запроса для изменения порядка абзацев."""
+    session_id: str = Field(..., description="ID сессии, в рамках которой меняется порядок")
+    new_order: List[int] = Field(..., description="Новый порядок абзацев (список ID абзацев в новом порядке)")
+
+class UpdateTopicRequest(BaseModel):
+    """Модель запроса для обновления темы анализа."""
+    session_id: str = Field(..., description="ID сессии, для которой обновляется тема")
+    topic: str = Field(..., description="Новая тема анализа")
+
 # Модель для ответа при ошибках (пример)
 # class ErrorResponse(BaseModel):
 #     detail: str

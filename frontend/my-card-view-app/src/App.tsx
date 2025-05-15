@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import CardList from './components/CardView/CardList';
 import TextInput from './components/TextInput';
+import DraggableExample from './components/DndKit/DraggableExample';
 import { initializeAnalysis, loadDemoData, fetchAnalysis } from './api';
 import type { AnalysisResponse } from './components/CardView/types';
 import './App.css';
@@ -94,12 +95,17 @@ function App() {
   return (
     <div className="app-container">
       {!session ? (
-        <TextInput 
-          onSubmit={handleAnalyzeText} 
-          loading={loading} 
-          error={error}
-          onDemoDataClick={handleLoadDemoData}
-        />
+        <>
+          <TextInput 
+            onSubmit={handleAnalyzeText} 
+            loading={loading} 
+            error={error}
+            onDemoDataClick={handleLoadDemoData}
+          />
+          <div style={{ marginTop: '40px' }}>
+            <DraggableExample />
+          </div>
+        </>
       ) : (
         <CardList 
           initialSession={session} 

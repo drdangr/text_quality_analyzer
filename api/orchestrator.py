@@ -6,6 +6,7 @@ import datetime
 import uuid
 import logging
 import concurrent.futures # Для ThreadPoolExecutor
+import re
 
 # Импортируем адаптированные модули анализа
 from analysis import readability
@@ -414,3 +415,90 @@ class AnalysisOrchestrator:
         self.session_store.save_analysis(session_id, df, topic)
         logger.info(f"[Orchestrator] Абзац {paragraph_id} разделен на два в сессии {session_id}.")
         return self._format_analysis_result(df, topic, session_id)
+
+    async def reorder_paragraphs(self, session_id: str, new_order: List[int]) -> Optional[Dict[str, Any]]:
+        """
+        Изменяет порядок абзацев в соответствии с предоставленным списком.
+        
+        Args:
+            session_id: Идентификатор сессии
+            new_order: Новый порядок абзацев (список ID абзацев в новом порядке)
+            
+        Returns:
+            Обновленный результат анализа или None, если произошла ошибка
+        """
+        logger.info(f"[Orchestrator] reorder_paragraphs: session_id={session_id}, new_order={new_order}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для изменения порядка абзацев.")
+            return None
+        
+        df = analysis_data["df"]
+        topic = analysis_data["topic"]
+        
+        # Проверяем, что новый порядок содержит все ID абзацев
+        current_ids = df['paragraph_id'].tolist()
+        if set(current_ids) != set(new_order):
+            logger.warning(f"[Orchestrator] Некорректный новый порядок. Текущие ID: {current_ids}, Новый порядок: {new_order}")
+            return None
+        
+        # Создаем новый DataFrame с переупорядоченными строками
+        new_df = df.set_index('paragraph_id').loc[new_order].reset_index()
+        
+        # Обновляем paragraph_id в соответствии с новым порядком
+        new_df['paragraph_id'] = range(len(new_df))
+        
+        # Сбрасываем семантический анализ, так как порядок абзацев может влиять на контекст
+        if 'semantic_function' in new_df.columns:
+            new_df['semantic_function'] = None
+        if 'semantic_method' in new_df.columns:
+            new_df['semantic_method'] = None
+        if 'semantic_error' in new_df.columns:
+            new_df['semantic_error'] = None
+        
+        # Сохраняем обновленные данные анализа
+        self.session_store.save_analysis(session_id, new_df, topic)
+        logger.info(f"[Orchestrator] Порядок абзацев изменен в сессии {session_id}.")
+        
+        # Возвращаем обновленный результат анализа
+        return self._format_analysis_result(new_df, topic, session_id)
+
+    async def update_topic(self, session_id: str, new_topic: str) -> Optional[Dict[str, Any]]:
+        """
+        Обновляет тему анализа для указанной сессии и пересчитывает зависящие от темы метрики.
+        
+        Args:
+            session_id: Идентификатор сессии
+            new_topic: Новая тема анализа
+            
+        Returns:
+            Обновленный результат анализа или None, если произошла ошибка
+        """
+        logger.info(f"[Orchestrator] update_topic: session_id={session_id}, new_topic={new_topic}")
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для обновления темы.")
+            return None
+        
+        df = analysis_data["df"]
+        
+        # Обновляем тему в анализе
+        self.session_store.save_analysis(session_id, df, new_topic)
+        
+        # Пересчитываем метрики сигнала/шума
+        df = await self._run_signal_strength_async(df.copy(), new_topic)
+        
+        # Пересчитываем семантический анализ
+        semantic_results_df = await self._run_semantic_function_async(df.copy(), new_topic)
+        if semantic_results_df is not None and not semantic_results_df.empty:
+            cols_to_update = ['semantic_function', 'semantic_method', 'semantic_error']
+            for col in cols_to_update:
+                if col in semantic_results_df:
+                    df[col] = semantic_results_df[col]
+        
+        # Сохраняем обновленные данные
+        self.session_store.save_analysis(session_id, df, new_topic)
+        logger.info(f"[Orchestrator] Тема и метрики успешно обновлены в сессии {session_id}.")
+        
+        # Возвращаем обновленный результат анализа
+        return self._format_analysis_result(df, new_topic, session_id)

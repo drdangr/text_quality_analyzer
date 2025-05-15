@@ -9,7 +9,7 @@ import type {
 const API_BASE_URL = 'http://localhost:8000/api'; 
 // Оригинальная строка была: const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-console.log("[APIClient] Effective API_BASE_URL (hardcoded for test):", API_BASE_URL);
+console.log("[APIClient] Effective API_BASE_URL:", API_BASE_URL);
 
 /**
  * Обрабатывает ошибки ответа fetch API.
@@ -155,6 +155,48 @@ export async function splitParagraph(
             session_id: sessionId,
             paragraph_id: paragraphId,
             split_position: splitPosition
+        }),
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
+// Изменение порядка абзацев
+export async function reorderParagraphs(
+    sessionId: string,
+    newOrder: number[]
+): Promise<AnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/reorder-paragraphs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            new_order: newOrder
+        }),
+    });
+
+    await handleResponseError(response);
+    return response.json() as Promise<AnalysisResponse>;
+}
+
+// Обновление темы анализа
+export async function updateTopic(
+    sessionId: string,
+    newTopic: string
+): Promise<AnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/update-topic`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            topic: newTopic
         }),
     });
 

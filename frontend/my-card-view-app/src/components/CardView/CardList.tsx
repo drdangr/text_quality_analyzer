@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import Card from './Card';
+import DraggableCardList from './DraggableCardList';
 import type { ParagraphData, AnalysisResponse } from './types'; // Используем AnalysisResponse
-import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs, splitParagraph, fetchAnalysis } from '../../api'; // Добавил fetchAnalysis
+import { updateParagraph, refreshFullSemanticAnalysis, mergeParagraphs, splitParagraph, fetchAnalysis, reorderParagraphs, updateTopic } from '../../api';
 
 // Типы для сортировки и фильтрации
 type SortField = 'id' | 'signal_strength' | 'complexity' | 'semantic_function'; // id вместо paragraph_id
@@ -51,6 +52,15 @@ const CardList: React.FC<CardListProps> = ({
   const [currentError, setCurrentError] = useState<string | null>(null);
   const [isRefreshingSemantics, setIsRefreshingSemantics] = useState<boolean>(false);
   const [isMergingParagraphs, setIsMergingParagraphs] = useState<boolean>(false);
+
+  // Ref для параграфов, чтобы можно было скроллить к выбранному
+  const paragraphRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Состояние для редактирования темы
+  const [isEditingTopic, setIsEditingTopic] = useState<boolean>(false);
+  const [editingTopicText, setEditingTopicText] = useState<string>('');
+  const [isSavingTopic, setIsSavingTopic] = useState<boolean>(false);
 
   // Обновляем состояние, если изменилась initialSession (например, после сброса и нового анализа или рефреша семантики)
   useEffect(() => {
@@ -355,6 +365,69 @@ const CardList: React.FC<CardListProps> = ({
     return result;
   }, [paragraphs, sortField, sortDirection, semanticFilter, searchQuery]);
 
+  // Функция скролла к выбранной карточке
+  const scrollToCard = (paragraphId: number) => {
+    if (paragraphRefs.current[paragraphId]) {
+      const cardElement = paragraphRefs.current[paragraphId];
+      if (cardElement && contentRef.current) {
+        // Вычисляем высоту закрепленной шапки и панели управления
+        const headerHeight = 60; // Высота шапки
+        const controlPanelHeight = 180; // Примерная высота панели управления
+        const totalOffset = headerHeight + controlPanelHeight;
+        
+        // Вычисляем позицию для скролла, учитывая закрепленные элементы
+        const topPosition = cardElement.getBoundingClientRect().top + window.pageYOffset - totalOffset;
+        
+        // Плавно скроллим до элемента
+        window.scrollTo({
+          top: topPosition,
+          behavior: 'smooth'
+        });
+      }
+    }
+  };
+
+  // Функция для начала редактирования темы
+  const handleStartEditingTopic = () => {
+    setIsEditingTopic(true);
+    setEditingTopicText(sessionData.metadata.topic || '');
+    setCurrentError(null);
+  };
+
+  // Функция для отмены редактирования темы
+  const handleCancelEditingTopic = () => {
+    setIsEditingTopic(false);
+    setEditingTopicText('');
+  };
+
+  // Функция для сохранения изменений темы
+  const handleSaveTopicEditing = async () => {
+    if (!sessionData || editingTopicText.trim() === '') return;
+    
+    setIsSavingTopic(true);
+    setCurrentError(null);
+    try {
+      const updatedSession = await updateTopic(
+        sessionData.metadata.session_id,
+        editingTopicText.trim()
+      );
+      
+      // Обновляем данные сессии
+      setSessionData(updatedSession);
+      // Обновляем список параграфов для отображения обновленных метрик
+      setParagraphs(updatedSession.paragraphs);
+      document.title = updatedSession.metadata.topic || "Анализ текста";
+      setIsEditingTopic(false);
+      setEditingTopicText('');
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Ошибка при сохранении темы';
+      setCurrentError(errorMsg);
+      console.error('Save topic error:', e);
+    } finally {
+      setIsSavingTopic(false);
+    }
+  };
+
   // Стили (можно вынести в CSS модули или styled-components)
   const controlPanelStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '15px', marginBottom: '20px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '4px' };
   const controlGroupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
@@ -369,7 +442,7 @@ const CardList: React.FC<CardListProps> = ({
       <div style={{
         position: 'sticky',
         top: 0,
-        zIndex: 10,
+        zIndex: 50,
         background: '#fff',
         boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
         minHeight: '60px',
@@ -379,7 +452,73 @@ const CardList: React.FC<CardListProps> = ({
         marginBottom: '0',
         padding: '0 10px',
       }}>
-        <h1 style={{ fontSize: '1.6rem', color: '#333', margin: 0 }}>{sessionData.metadata.topic || "Анализ текста"}</h1>
+        {isEditingTopic ? (
+          <div style={{ display: 'flex', alignItems: 'center', flex: 1, maxWidth: '70%' }}>
+            <input
+              type="text"
+              value={editingTopicText}
+              onChange={(e) => setEditingTopicText(e.target.value)}
+              style={{
+                fontSize: '1.4rem',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                border: '1px solid #ccc',
+                flex: 1,
+                minWidth: '300px'
+              }}
+              placeholder="Введите тему анализа"
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '10px', marginLeft: '10px' }}>
+              <button
+                onClick={handleCancelEditingTopic}
+                disabled={isSavingTopic}
+                style={{
+                  padding: '4px 10px',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleSaveTopicEditing}
+                disabled={isSavingTopic}
+                style={{
+                  padding: '4px 10px',
+                  backgroundColor: '#5cb85c',
+                  color: 'white',
+                  border: '1px solid #4cae4c',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                {isSavingTopic ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <h1 
+            style={{ 
+              fontSize: '1.6rem', 
+              color: '#333', 
+              margin: 0,
+              cursor: 'pointer',
+              padding: '6px 10px',
+              borderRadius: '4px',
+              transition: 'background-color 0.2s',
+              backgroundColor: '#fff'
+            }}
+            onClick={handleStartEditingTopic}
+            title="Нажмите для редактирования темы"
+            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+          >
+            {sessionData.metadata.topic || "Анализ текста"}
+          </h1>
+        )}
         <div style={{display: 'flex', gap: '10px'}}>
           {!isSemanticAnalysisUpToDate && (
             <button 
@@ -400,7 +539,7 @@ const CardList: React.FC<CardListProps> = ({
       <div style={{
         position: 'sticky',
         top: 60,
-        zIndex: 9,
+        zIndex: 49,
         background: '#fff',
         boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
         marginBottom: '20px',
@@ -439,7 +578,7 @@ const CardList: React.FC<CardListProps> = ({
         {/* Тепловая карта распределения Сигнал/Шум */}
         <div style={{ margin: '15px 0 0 0' }}>
           <div style={{ fontSize: '0.9rem', color: '#555', marginBottom: '5px' }}>
-            Карта распределения соотношения Сигнал/Шум в документе:
+            Карта распределения соотношения Сигнал/Шум в документе (нажмите на блок для навигации):
           </div>
           <div style={{ 
             display: 'flex', 
@@ -458,9 +597,11 @@ const CardList: React.FC<CardListProps> = ({
                   style={{
                     flex: '1',
                     height: '100%',
-                    backgroundColor: getBackgroundColorForSignal(signal)
+                    backgroundColor: getBackgroundColorForSignal(signal),
+                    cursor: 'pointer' // Добавляем курсор-указатель, чтобы пользователь понял, что это кликабельный элемент
                   }}
                   title={`ID: ${paragraph.id}, Сигнал/Шум: ${(normalizedSignal * 100).toFixed(1)}%`}
+                  onClick={() => scrollToCard(paragraph.id)}
                 />
               );
             })}
@@ -483,33 +624,36 @@ const CardList: React.FC<CardListProps> = ({
         Показано абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length}
       </div>
 
-      {sortedAndFilteredParagraphs.map((p, index) => (
-        <Card
-          key={p.id} // Используем p.id
-          paragraph={p}
-          minSignal={uiSignalMin} // Используем uiSignalMin/Max для нормализации
-          maxSignal={uiSignalMax}
-          minComplexity={uiComplexityMin}
-          maxComplexity={uiComplexityMax}
+      <div ref={contentRef}>
+        <DraggableCardList
+          sessionData={sessionData}
+          paragraphs={paragraphs}
+          setParagraphs={setParagraphs}
+          setSessionData={setSessionData}
+          markSemanticsAsStale={markSemanticsAsStale}
+          uiSignalMin={uiSignalMin}
+          uiSignalMax={uiSignalMax}
+          uiComplexityMin={uiComplexityMin}
+          uiComplexityMax={uiComplexityMax}
           fontSize={`${fontSize}pt`}
           signalMinColor={signalMinColor}
           signalMaxColor={signalMaxColor}
           complexityMinColor={complexityMinColor}
           complexityMaxColor={complexityMaxColor}
-          isEditing={editingParagraphId === p.id}
-          editingText={editingParagraphId === p.id ? editingText : ''}
-          onEditingTextChange={setEditingText}
-          onStartEditing={() => handleStartEditing(p)}
-          onSave={handleSaveWithSplit}
-          onCancel={handleCancelEditing}
+          editingParagraphId={editingParagraphId}
+          editingText={editingText}
+          setEditingText={setEditingText}
+          handleStartEditing={handleStartEditing}
+          handleSaveWithSplit={handleSaveWithSplit}
+          handleCancelEditing={handleCancelEditing}
           isSaving={isSaving}
-          isFirst={index === 0}
-          isLast={index === sortedAndFilteredParagraphs.length - 1}
-          onMergeDown={() => handleMergeDown(index)}
+          handleMergeDown={handleMergeDown}
+          sortedAndFilteredParagraphs={sortedAndFilteredParagraphs}
+          paragraphRefs={paragraphRefs}
         />
-      ))}
+      </div>
     </div>
   );
 };
 
-export default CardList; 
+export default CardList;
