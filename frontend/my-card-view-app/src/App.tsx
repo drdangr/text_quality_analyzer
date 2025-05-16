@@ -7,6 +7,22 @@ import type { AnalysisResponse, ParagraphData } from './components/CardView/type
 import type { SortField, SortDirection } from './components/CardView/CardList';
 import './App.css';
 
+// Вспомогательная функция для подсчета слов
+const countWords = (text: string): number => {
+  if (!text || text.trim() === '') return 0;
+  // Разделение по одному или более пробельным символам или дефисам, окруженным пробелами (чтобы не разделять слова типа "сигнал-шум")
+  // и фильтрация пустых строк, которые могут возникнуть из-за нескольких пробелов подряд.
+  return text.trim().split(/\s+|\s+-\s+/).filter(word => word.length > 0).length;
+};
+
+// Вспомогательная функция для форматирования времени чтения
+const formatReadingTime = (totalMinutes: number): string => {
+  if (totalMinutes === 0) return "0 мин";
+  if (totalMinutes < 1) return "< 1 мин";
+  const roundedMinutes = Math.round(totalMinutes);
+  return `${roundedMinutes} мин`;
+};
+
 // Константы, ранее бывшие в CardList
 const DEFAULT_SIGNAL_MIN_COLOR = "#FFFFFF"; 
 const DEFAULT_SIGNAL_MAX_COLOR = "#FFDB58"; 
@@ -65,6 +81,15 @@ function App() {
   const contentRefApp = useRef<HTMLDivElement>(null); // Для основного скроллящегося контента
 
   const paragraphs = useMemo(() => session?.paragraphs || [], [session]);
+
+  const estimatedReadingTime = useMemo(() => {
+    if (!session || session.paragraphs.length === 0) return "0 мин";
+    const totalWords = session.paragraphs.reduce((acc, p) => acc + countWords(p.text), 0);
+    const WPM = 180; // Слов в минуту (среднее для русского языка, можно вынести в константу)
+    if (totalWords === 0) return "0 мин";
+    const readingTimeMinutes = totalWords / WPM;
+    return formatReadingTime(readingTimeMinutes);
+  }, [session]);
 
   const availableSemanticFunctions = useMemo(() => {
     if (!session) return ['all'];
@@ -445,6 +470,7 @@ function App() {
           
           <div style={summaryAndSearchRowStyle}>
             <span style={summaryStatsStyle}>
+              Время чтения: <strong>{estimatedReadingTime}</strong> | 
               Сложность: <strong>{formatMetric(session?.metadata.avg_complexity)}</strong> | 
               Сигнал/Шум: <strong>{formatMetric(session?.metadata.avg_signal_strength)}</strong> | 
               Абзацев: {sortedAndFilteredParagraphs.length} из {paragraphs.length} 
