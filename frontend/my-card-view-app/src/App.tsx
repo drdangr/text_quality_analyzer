@@ -342,7 +342,7 @@ function App() {
     flexGrow: 1,
     display: 'flex',
     flexDirection: 'column',
-    overflow: 'hidden', // FullTextEditor будет управлять своим скроллом, если нужно
+    overflowY: 'auto', // Разрешаем вертикальный скролл для этого блока
     minHeight: 0, // Важно для вложенных flex-элементов
   };
 
