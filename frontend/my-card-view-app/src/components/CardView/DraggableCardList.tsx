@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Dispatch, SetStateAction } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -121,9 +121,9 @@ const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest,
 
 interface DraggableCardListProps {
   sessionData: AnalysisResponse;
-  paragraphs: ParagraphData[];
-  setParagraphs: React.Dispatch<React.SetStateAction<ParagraphData[]>>;
-  setSessionData: React.Dispatch<React.SetStateAction<AnalysisResponse>>;
+  paragraphsToRender: ParagraphData[];
+  setParagraphsStateInCardList: Dispatch<SetStateAction<ParagraphData[]>>;
+  onReorderComplete: (updatedSession: AnalysisResponse) => void;
   markSemanticsAsStale: () => void;
   // UI controls props
   uiSignalMin: number;
@@ -139,7 +139,7 @@ interface DraggableCardListProps {
   // editing props
   editingParagraphId: number | null;
   editingText: string;
-  setEditingText: React.Dispatch<React.SetStateAction<string>>;
+  setEditingText: Dispatch<SetStateAction<string>>;
   handleStartEditing: (paragraph: ParagraphData) => void;
   handleSaveEditing: () => Promise<void>;
   handleCancelEditing: () => void;
@@ -148,8 +148,6 @@ interface DraggableCardListProps {
   handleMergeDown: (index: number) => Promise<void>;
   onDeleteRequest: (paragraphId: number) => void;
   // Other props
-  sortedAndFilteredParagraphs: ParagraphData[];
-  // Ref для элементов карточек для скролла
   paragraphRefs?: React.MutableRefObject<{
     [key: string]: HTMLDivElement | null;
   }>;
@@ -157,9 +155,9 @@ interface DraggableCardListProps {
 
 const DraggableCardList: React.FC<DraggableCardListProps> = ({
   sessionData,
-  paragraphs,
-  setParagraphs,
-  setSessionData,
+  paragraphsToRender,
+  setParagraphsStateInCardList,
+  onReorderComplete,
   markSemanticsAsStale,
   uiSignalMin,
   uiSignalMax,
@@ -180,11 +178,9 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
   isSaving,
   handleMergeDown,
   onDeleteRequest,
-  sortedAndFilteredParagraphs,
   paragraphRefs,
 }) => {
   const [currentError, setCurrentError] = useState<string | null>(null);
-  const [isReordering, setIsReordering] = useState<boolean>(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -197,55 +193,44 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
     const { active, over } = event;
     
     if (over && active.id !== over.id) {
-      // Найдем индексы в отсортированном массиве
-      const oldIndex = sortedAndFilteredParagraphs.findIndex(p => p.id.toString() === active.id);
-      const newIndex = sortedAndFilteredParagraphs.findIndex(p => p.id.toString() === over.id);
+      const oldIndex = paragraphsToRender.findIndex(p => p.id.toString() === active.id);
+      const newIndex = paragraphsToRender.findIndex(p => p.id.toString() === over.id);
       
       if (oldIndex !== -1 && newIndex !== -1) {
-        // Локально обновляем состояние для мгновенного отклика UI (временная визуализация)
-        const newArray = arrayMove(sortedAndFilteredParagraphs, oldIndex, newIndex);
+        const newOrderedParagraphs = arrayMove(paragraphsToRender, oldIndex, newIndex);
         
-        // Отправляем запрос на бэкенд
+        // 1. Оптимистичное обновление UI в CardList (если paragraphsToRender это его состояние)
+        // setParagraphsStateInCardList должен обновить массив, который используется для sortedAndFilteredParagraphs
+        setParagraphsStateInCardList(newOrderedParagraphs);
+        
         try {
-          setIsReordering(true);
-          // Создаем массив ID всех абзацев в новом порядке
-          const newOrder = newArray.map(p => p.id);
-          
-          console.log("Отправка нового порядка на сервер:", newOrder);
-          
-          // Вызываем API для сохранения нового порядка
-          const updatedSession = await reorderParagraphs(
+          const newOrderIds = newOrderedParagraphs.map(p => p.id);
+          const updatedSessionFromAPI = await reorderParagraphs(
             sessionData.metadata.session_id,
-            newOrder
+            newOrderIds
           );
-          
-          console.log("Получены обновленные данные с сервера:", updatedSession);
-          
-          // Обновляем данные сессии после успешного запроса
-          setSessionData(updatedSession);
-          
-          // Важно! Полностью заменяем массив параграфов из обновленной сессии,
-          // а не пытаемся обновлять существующий массив
-          setParagraphs(updatedSession.paragraphs);
-          
+          // 2. Обновление полной сессии через колбэк, который дойдет до App.tsx
+          onReorderComplete(updatedSessionFromAPI); 
           markSemanticsAsStale();
           setCurrentError(null);
         } catch (e) {
           const errorMsg = e instanceof Error ? e.message : 'Ошибка при изменении порядка абзацев';
           setCurrentError(errorMsg);
           console.error('Reorder error:', e);
-          
-          // Восстанавливаем исходное состояние в случае ошибки
-          // Запрашиваем актуальное состояние с сервера
+          // В случае ошибки, нужно откатить состояние. App.tsx получит ошибку и может решить обновить сессию из API.
+          // Здесь можно просто вызвать onReorderComplete с исходным sessionData, чтобы App.tsx обновился.
+          // Или, если setParagraphsStateInCardList меняет paragraphs в CardList, а он часть sessionData, то
+          // можно попробовать восстановить предыдущий порядок или запросить свежие данные.
+          // Пока что, если API упал, UI останется в оптимистично обновленном состоянии,
+          // но данные на сервере будут старыми. Это не идеально.
+          // Можно попробовать перезапросить исходную сессию для отката:
           try {
-            const refreshedSession = await fetchAnalysis(sessionData.metadata.session_id);
-            setSessionData(refreshedSession);
-            setParagraphs(refreshedSession.paragraphs);
+            const originalSession = await fetchAnalysis(sessionData.metadata.session_id);
+            onReorderComplete(originalSession);
           } catch (refreshError) {
-            console.error('Error refreshing session data:', refreshError);
+            console.error("Failed to refetch session after reorder error:", refreshError);
+            // Если и это не удалось, показываем ошибку, состояние UI остается несинхронизированным
           }
-        } finally {
-          setIsReordering(false);
         }
       }
     }
@@ -265,10 +250,10 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={sortedAndFilteredParagraphs.map(p => p.id.toString())}
+          items={paragraphsToRender.map(p => p.id.toString())}
           strategy={verticalListSortingStrategy}
         >
-          {sortedAndFilteredParagraphs.map((p, index) => (
+          {paragraphsToRender.map((p, index) => (
             <SortableCard
               key={p.id}
               paragraph={p}
@@ -290,7 +275,7 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
               onCancel={handleCancelEditing}
               isSaving={isSaving}
               isFirst={index === 0}
-              isLast={index === sortedAndFilteredParagraphs.length - 1}
+              isLast={index === paragraphsToRender.length - 1}
               onMergeDown={() => handleMergeDown(index)}
               onDeleteRequest={onDeleteRequest}
               paragraphRefs={paragraphRefs}

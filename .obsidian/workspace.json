@@ -241,6 +241,7 @@
   },
   "active": "44838a176e33f1b7",
   "lastOpenFiles": [
+    "frontend/my-card-view-app/src/components/FullTextEditor.tsx",
     "api/__pycache__/models.cpython-310.pyc.140703411316240",
     "api/__pycache__/orchestrator.cpython-310.pyc.140147214699744",
     "api/__pycache__/models.cpython-310.pyc.140147217917456",
@@ -263,7 +264,6 @@
     "frontend/my-card-view-app/src/assets/icons",
     "data/Объяснение эмбеддингов, токенов и чанкинга.md",
     "api/__pycache__/models.cpython-310.pyc.140415355725328",
-    "api/__pycache__/routes.cpython-310.pyc.140415355725136",
     "frontend/my-card-view-app/node_modules/@dnd-kit/accessibility/CHANGELOG.md",
     "frontend/my-card-view-app/node_modules/@dnd-kit/core/README.md",
     "frontend/my-card-view-app/node_modules/@dnd-kit/core/CHANGELOG.md",

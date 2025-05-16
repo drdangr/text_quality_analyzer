@@ -4,6 +4,7 @@
   font-weight: 400;
 
   color-scheme: light dark;
+  /* Цвета по умолчанию для темной темы (если не переопределены) */
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
 
@@ -11,6 +12,19 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  /* display: flex; */ /* Убираем flex для body */
+  /* place-items: center; */ /* Убираем центрирование для body */
+  min-width: 320px;
+  /* min-height: 100vh; */ /* Заменено на height: 100% для html, body, #root */
 }
 
 a {
@@ -22,17 +36,10 @@ a:hover {
   color: #535bf2;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
+  margin: 0; /* Убираем стандартные отступы у h1, чтобы они не влияли на layout шапки */
 }
 
 button {
@@ -42,7 +49,7 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: #f9f9f9;
   cursor: pointer;
   transition: border-color 0.25s;
 }
@@ -66,3 +73,29 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Новая анимация для текстового спиннера (точек) */
+@keyframes dots-breath {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+.loading-dots span {
+  display: inline-block;
+  width: 10px; /* Размер точки */
+  height: 10px; /* Размер точки */
+  margin: 0 3px; /* Расстояние между точками */
+  background-color: currentColor; /* Использует цвет текста родителя (белый для оверлея) */
+  border-radius: 50%;
+  animation: dots-breath 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+/* .loading-dots span:nth-child(3) - без задержки, или можно убрать для 2х точек */
