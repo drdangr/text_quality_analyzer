@@ -48,6 +48,17 @@ interface AppCardListProps {
   globalComplexityRange: {min: number, max: number};
 }
 
+// Вспомогательная функция для точного расчёта offsetTop относительно контейнера
+function getRelativeOffsetTop(element: HTMLElement, container: HTMLElement): number {
+  let offset = 0;
+  let el: HTMLElement | null = element;
+  while (el && el !== container) {
+    offset += el.offsetTop;
+    el = el.offsetParent as HTMLElement | null;
+  }
+  return offset;
+}
+
 function App() {
   const [session, setSession] = useState<AnalysisResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -140,13 +151,24 @@ function App() {
     const controlPanelHeight = document.getElementById('control-panel-sticky-app')?.offsetHeight || 0;
     const stickyOffset = topHeaderHeight + (viewMode === 'cards' && session ? controlPanelHeight : 0) + 20; // +20px запаса
     
-    if (paragraphRefsApp.current[paragraphId]) {
-      const cardElement = paragraphRefsApp.current[paragraphId];
-      if (cardElement) {
-        const elementPosition = cardElement.getBoundingClientRect().top;
-        const offsetPosition = elementPosition + window.pageYOffset - stickyOffset;
-        window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
-      }
+    const cardElement = paragraphRefsApp.current[paragraphId];
+    if (!cardElement) return;
+
+    if (contentRefApp.current) {
+      // Точное позиционирование карточки под шапкой через getRelativeOffsetTop
+      const container = contentRefApp.current;
+      const offsetTop = getRelativeOffsetTop(cardElement, container);
+      const rawScrollTop = offsetTop - stickyOffset;
+      const desiredScrollTop = Math.max(0, Math.min(rawScrollTop, container.scrollHeight - container.clientHeight));
+      container.scrollTo({ top: desiredScrollTop, behavior: 'smooth' });
+      // Анимация "прыжка" карточки
+      cardElement.classList.add('card-jump');
+      setTimeout(() => cardElement.classList.remove('card-jump'), 600);
+    } else {
+      // Fallback: скроллим окно
+      const elementPosition = cardElement.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - stickyOffset;
+      window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
     }
   };
 

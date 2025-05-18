@@ -1,4 +1,5 @@
-import React, { useState, Dispatch, SetStateAction } from 'react';
+import React, { useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -66,11 +67,14 @@ const SortableCard: React.FC<SortableCardProps> = ({ paragraph, onDeleteRequest,
   const dragHandleRef = React.useRef<HTMLDivElement>(null);
 
   // Записываем ссылку на DOM-элемент для скролла, если есть paragraphRefs
-  const setCardRef = (element: HTMLDivElement) => {
+  const setCardRef = (element: HTMLDivElement | null) => {
     if (rest.paragraphRefs) {
-      rest.paragraphRefs.current[paragraph.id] = element;
+      if (element) {
+        rest.paragraphRefs.current[paragraph.id] = element;
+      } else {
+        delete rest.paragraphRefs.current[paragraph.id];
+      }
     }
-    // Также устанавливаем ref для DnD
     setNodeRef(element);
   };
 
@@ -181,6 +185,19 @@ const DraggableCardList: React.FC<DraggableCardListProps> = ({
   paragraphRefs,
 }) => {
   const [currentError, setCurrentError] = useState<string | null>(null);
+
+  // Очищаем paragraphRefs перед каждым новым рендером списка карточек
+  React.useEffect(() => {
+    if (paragraphRefs) {
+      // Удаляем только те ключи, которые не встречаются в текущем списке абзацев
+      const currentIds = new Set(paragraphsToRender.map(p => p.id));
+      Object.keys(paragraphRefs.current).forEach(key => {
+        if (!currentIds.has(Number(key))) {
+          delete paragraphRefs.current[key];
+        }
+      });
+    }
+  }, [paragraphsToRender, paragraphRefs]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),

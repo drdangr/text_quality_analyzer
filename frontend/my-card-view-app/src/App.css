@@ -45,3 +45,15 @@
 .read-the-docs {
   color: #888;
 }
+
+.card-jump {
+  animation: cardJumpAnim 0.5s cubic-bezier(.4,1.6,.4,1);
+  z-index: 100;
+  position: relative;
+}
+@keyframes cardJumpAnim {
+  0%   { transform: translateY(0); box-shadow: 0 0 0 rgba(0,0,0,0);}
+  30%  { transform: translateY(-12px) scale(1.03); box-shadow: 0 8px 24px rgba(0,0,0,0.10);}
+  60%  { transform: translateY(2px) scale(1.01);}
+  100% { transform: translateY(0); box-shadow: 0 0 0 rgba(0,0,0,0);}
+}
