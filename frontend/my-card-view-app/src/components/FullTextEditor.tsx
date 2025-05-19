@@ -7,6 +7,8 @@ interface FullTextEditorProps {
   onDemoDataClick?: () => void;
   loading: boolean;
   error: string | null;
+  isBackendReady?: boolean;
+  backendError?: string | null;
 }
 
 const FullTextEditor: React.FC<FullTextEditorProps> = ({ 
@@ -15,7 +17,9 @@ const FullTextEditor: React.FC<FullTextEditorProps> = ({
   onSubmit,
   onDemoDataClick,
   loading,
-  error 
+  error,
+  isBackendReady = true,
+  backendError = null
 }) => {
   const [text, setText] = useState<string>(initialText);
   const [topic, setTopic] = useState<string>(initialTopic);
@@ -155,11 +159,6 @@ const FullTextEditor: React.FC<FullTextEditorProps> = ({
     backgroundColor: '#28a745',
   };
 
-  const demoButtonStyle: React.CSSProperties = {
-    ...buttonStyle,
-    backgroundColor: '#007bff',
-  };
-
   const uploadButtonStyle: React.CSSProperties = {
     ...buttonStyle,
     backgroundColor: '#ffc107',
@@ -226,9 +225,16 @@ const FullTextEditor: React.FC<FullTextEditorProps> = ({
         <div style={buttonContainerStyle}>
           <button
             type="submit"
-            disabled={loading || !text.trim() || !topic.trim()}
-            style={analyzeButtonStyle}
-            title={(!text.trim() || !topic.trim()) ? "Пожалуйста, заполните тему и текст" : "Анализировать и перейти к карточкам"}
+            disabled={loading || !text.trim() || !topic.trim() || !isBackendReady}
+            style={{
+              ...analyzeButtonStyle,
+              backgroundColor: !isBackendReady ? '#6c757d' : '#28a745',
+            }}
+            title={
+              !isBackendReady ? "Ожидание подключения к бэкенду..." :
+              (!text.trim() || !topic.trim()) ? "Пожалуйста, заполните тему и текст" : 
+              "Анализировать и перейти к карточкам"
+            }
           >
             {loading ? 'Анализ...' : 'Анализировать и перейти к карточкам'}
           </button>
@@ -241,17 +247,6 @@ const FullTextEditor: React.FC<FullTextEditorProps> = ({
           >
             Загрузить из файла
           </button>
-          
-          {onDemoDataClick && (
-            <button
-              type="button"
-              onClick={onDemoDataClick}
-              style={demoButtonStyle}
-              disabled={loading}
-            >
-              Демо-данные
-            </button>
-          )}
         </div>
         
         {error && (

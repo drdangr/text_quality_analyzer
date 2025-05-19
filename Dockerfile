@@ -19,10 +19,11 @@ RUN apt-get update && \
     python3-pip \
     python3-venv \
     git \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем файл с зависимостями
-COPY requirements.txt requirements.txt
+COPY requirements.txt .
 
 # Обновляем pip и устанавливаем зависимости из requirements.txt
 # Используем --no-cache-dir для уменьшения размера образа

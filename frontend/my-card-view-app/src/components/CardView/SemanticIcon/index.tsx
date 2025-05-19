@@ -1,16 +1,16 @@
 import React from 'react';
 
-// Импортируем все иконки как обычные ресурсы
-import RaskrytieTemySvg from '../../../assets/icons/раскрытие_темы.svg';
-import PoyasnenieNaPrimereSvg from '../../../assets/icons/пояснение_на_примере.svg';
-import LiricheskoeOtstuplenieSvg from '../../../assets/icons/лирическое_отступление.svg';
-import KlyuchevoyTezisSvg from '../../../assets/icons/ключевой_тезис.svg';
-import ShumSvg from '../../../assets/icons/шум.svg';
-import MetaforaIliAnalogiyaSvg from '../../../assets/icons/метафора_или_аналогия.svg';
-import YumorIroniyaSarkazmSvg from '../../../assets/icons/юмор_ирония_сарказм.svg';
-import SvyazuyushchiyPerehodSvg from '../../../assets/icons/связующий_переход.svg';
-import SmenaTemySvg from '../../../assets/icons/смена_темы.svg';
-import ProtivopostavlenieKontrastSvg from '../../../assets/icons/противопоставление_контраст.svg';
+// Импортируем все иконки с английскими именами файлов
+import RaskrytieTemySvg from '../../../assets/icons/topic_disclosure.svg';
+import PoyasnenieNaPrimereSvg from '../../../assets/icons/example_explanation.svg';
+import LiricheskoeOtstuplenieSvg from '../../../assets/icons/lyrical_digression.svg';
+import KlyuchevoyTezisSvg from '../../../assets/icons/key_thesis.svg';
+import ShumSvg from '../../../assets/icons/noise.svg';
+import MetaforaIliAnalogiyaSvg from '../../../assets/icons/metaphor_or_analogy.svg';
+import YumorIroniyaSarkazmSvg from '../../../assets/icons/humor_irony_sarcasm.svg';
+import SvyazuyushchiyPerehodSvg from '../../../assets/icons/connecting_transition.svg';
+import SmenaTemySvg from '../../../assets/icons/topic_change.svg';
+import ProtivopostavlenieKontrastSvg from '../../../assets/icons/contrast_opposition.svg';
 
 interface SemanticIconProps {
   semanticFunction: string | null | undefined;

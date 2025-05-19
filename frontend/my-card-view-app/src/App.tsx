@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import CardList from './components/CardView/CardList';
 import FullTextEditor from './components/FullTextEditor';
-import { initializeAnalysis, loadDemoData, fetchAnalysis, updateTopic, refreshFullSemanticAnalysis } from './api';
+import { initializeAnalysis, fetchAnalysis, updateTopic, refreshFullSemanticAnalysis } from './api';
 import type { AnalysisResponse, ParagraphData } from './components/CardView/types';
 import type { SortField, SortDirection } from './components/CardView/CardList';
 import './App.css';
@@ -64,6 +64,8 @@ function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isSemanticAnalysisUpToDate, setIsSemanticAnalysisUpToDate] = useState<boolean>(true);
+  const [isBackendReady, setIsBackendReady] = useState<boolean>(true);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   type ViewMode = 'editor' | 'cards';
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -172,6 +174,38 @@ function App() {
     }
   };
 
+  // Проверка статуса бэкенда
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const resp = await fetch('http://localhost:8000/health');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.status === 'ok') {
+            setIsBackendReady(true);
+            setBackendError(null);
+          } else {
+            setIsBackendReady(false);
+            setBackendError('Бэкенд не готов: ' + (data.status || 'Неизвестная причина'));
+          }
+        } else {
+          setIsBackendReady(false);
+          setBackendError('Бэкенд не отвечает (ошибка HTTP ' + resp.status + ')');
+        }
+      } catch (e) {
+        setIsBackendReady(false);
+        setBackendError('Бэкенд недоступен');
+      }
+    };
+    
+    // Проверяем статус бэкенда сразу и потом каждые 3 секунды
+    checkBackend();
+    const interval = window.setInterval(checkBackend, 3000);
+    
+    // Очищаем интервал при размонтировании
+    return () => clearInterval(interval);
+  }, []);
+
   // ... (useEffect для загрузки сессии, handleAnalyzeText, handleLoadDemoData, и т.д. остаются)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -240,29 +274,6 @@ function App() {
     } finally {
       setLoading(false);
       console.log("App.tsx: handleAnalyzeText finally. Current session:", session, "Current viewMode:", viewMode);
-    }
-  };
-
-  const handleLoadDemoData = async () => {
-    console.log("App.tsx: handleLoadDemoData called");
-    setLoading(true);
-    setError(null);
-    setIsSemanticAnalysisUpToDate(false);
-    try {
-      const demoSessionData = await loadDemoData();
-      console.log("App.tsx: demoSessionData received:", demoSessionData);
-      setSession(demoSessionData);
-      setEditorFullText(demoSessionData.paragraphs.map(p => p.text).join('\n\n'));
-      document.title = demoSessionData.metadata.topic || "Демо данные";
-      window.history.pushState({}, '', `?session_id=${demoSessionData.metadata.session_id}`);
-      setIsSemanticAnalysisUpToDate(true);
-      setViewMode('cards');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка при загрузке демо-данных');
-      console.error('Ошибка при загрузке демо:', err);
-    } finally {
-      setLoading(false);
-      console.log("App.tsx: handleLoadDemoData finally. Current session:", session, "Current viewMode:", viewMode);
     }
   };
 
@@ -369,11 +380,6 @@ function App() {
   }, [session, sortField, sortDirection, semanticFilter, searchQuery]);
   
   console.log("App.tsx: Rendering. ViewMode:", viewMode, "Session ID:", session?.metadata.session_id, "Loading:", loading, "Error:", error);
-
-  // Если идет загрузка и еще нет сессии, показываем только лоадер
-  if (loading && !session) {
-    return <div className="app-loading">Загрузка данных сессии...</div>;
-  }
 
   const appContainerStyles: React.CSSProperties = {
     display: 'flex',
@@ -508,9 +514,10 @@ function App() {
             initialText={editorFullText}
             initialTopic={editorTopic}
             onSubmit={handleAnalyzeText}
-            onDemoDataClick={!editorFullText && !session ? handleLoadDemoData : undefined}
             loading={loading}
-            error={error} 
+            error={error}
+            isBackendReady={isBackendReady}
+            backendError={backendError}
           />
         )}
 
@@ -534,7 +541,7 @@ function App() {
           />
         )}
         
-        {/* Оверлей загрузки, отображается поверх контента */}
+        {/* Единый механизм загрузки - показываем плашку только если идет загрузка */}
         {loading && (
           <div style={{
             position: 'fixed',
@@ -542,7 +549,7 @@ function App() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)', // Менее прозрачный фон
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
@@ -551,7 +558,7 @@ function App() {
             color: '#fff',
             flexDirection: 'column'
           }}>
-            <div style={{ marginBottom: '15px' }}>Анализ текста...</div>
+            <div style={{ marginBottom: '15px' }}>{!session ? 'Загрузка данных сессии...' : 'Анализ текста...'}</div>
             <div className="loading-dots" style={{ fontSize: '2em' }}>
               <span></span>
               <span></span>
@@ -560,10 +567,17 @@ function App() {
           </div>
         )}
 
+        {/* Сообщение о недоступности бэкенда отображается в интерфейсе, а не перекрывает весь экран */}
+        {!isBackendReady && !loading && backendError && (
+          <div style={{maxWidth: '800px', margin: '20px auto', padding: '15px', color: '#856404', backgroundColor: '#fff3cd', borderRadius: '4px', border: '1px solid #ffeeba', textAlign: 'center' }} role="alert">
+              <strong>Проблема с подключением к серверу:</strong> {backendError}
+          </div>
+        )}
+
         {error && (
           <div style={{maxWidth: '800px', margin: '20px auto', padding: '15px', color: '#a94442', backgroundColor: '#f2dede', borderRadius: '4px', border: '1px solid #ebccd1', textAlign: 'center' }} role="alert">
               <strong>Ошибка:</strong> {error}
-            </div>
+          </div>
         )}
       </div>
     </div>

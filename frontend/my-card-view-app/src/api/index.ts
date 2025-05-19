@@ -7,7 +7,7 @@ import type {
 } from '../components/CardView/types';
 
 // ВРЕМЕННО ЖЕСТКО ЗАДАЕМ URL ДЛЯ ТЕСТИРОВАНИЯ
-const API_BASE_URL = 'http://localhost:8000/api'; 
+const API_BASE_URL = 'http://localhost:8000'; 
 // Оригинальная строка была: const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 console.log("[APIClient] Effective API_BASE_URL:", API_BASE_URL);
@@ -46,7 +46,7 @@ export async function initializeAnalysis(text: string, topic: string, sessionId?
         requestBody.session_id = sessionId;
     }
 
-    const response = await fetch(`${API_BASE_URL}/analyze`, {
+    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -61,7 +61,7 @@ export async function initializeAnalysis(text: string, topic: string, sessionId?
 
 // Получение результатов анализа по session_id
 export async function fetchAnalysis(sessionId: string): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/analysis/${sessionId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/analysis/${sessionId}`, {
         headers: {
             'Accept': 'application/json',
         },
@@ -83,7 +83,7 @@ export async function updateParagraph(
         text: newText
     };
   
-    const response = await fetch(`${API_BASE_URL}/update-paragraph`, {
+    const response = await fetch(`${API_BASE_URL}/api/update-paragraph`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -98,7 +98,7 @@ export async function updateParagraph(
 
 // Экспорт результатов анализа
 export async function exportAnalysis(sessionId: string, format: 'json' | 'csv' = 'csv'): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/export/${sessionId}?format=${format}`);
+    const response = await fetch(`${API_BASE_URL}/api/export/${sessionId}?format=${format}`);
   
     await handleResponseError(response); // Ошибки здесь также могут быть в JSON формате
     return response.blob();
@@ -106,7 +106,7 @@ export async function exportAnalysis(sessionId: string, format: 'json' | 'csv' =
 
 // Обновление полной семантики для сессии
 export async function refreshFullSemanticAnalysis(sessionId: string): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/analysis/${sessionId}/refresh-semantics`, {
+    const response = await fetch(`${API_BASE_URL}/api/analysis/${sessionId}/refresh-semantics`, {
         method: 'POST',
         headers: {
             'Accept': 'application/json',
@@ -123,7 +123,7 @@ export async function mergeParagraphs(
     paragraph_id_1: number,
     paragraph_id_2: number
 ): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/merge-paragraphs`, {
+    const response = await fetch(`${API_BASE_URL}/api/merge-paragraphs`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ export async function splitParagraph(
     paragraphId: number,
     splitPosition: number
 ): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/split-paragraph`, {
+    const response = await fetch(`${API_BASE_URL}/api/split-paragraph`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -168,7 +168,7 @@ export async function reorderParagraphs(
     sessionId: string,
     newOrder: number[]
 ): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/reorder-paragraphs`, {
+    const response = await fetch(`${API_BASE_URL}/api/reorder-paragraphs`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -189,7 +189,7 @@ export async function updateTopic(
     sessionId: string,
     newTopic: string
 ): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/update-topic`, {
+    const response = await fetch(`${API_BASE_URL}/api/update-topic`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -210,7 +210,7 @@ export async function deleteParagraph(
     sessionId: string,
     paragraphId: number
 ): Promise<AnalysisResponse> {
-    const response = await fetch(`${API_BASE_URL}/paragraph/${sessionId}/${paragraphId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/paragraph/${sessionId}/${paragraphId}`, {
         method: 'DELETE',
         headers: {
             'Accept': 'application/json',
@@ -233,7 +233,7 @@ export async function updateTextAndRestructureParagraph(
         text: newText
     };
 
-    const response = await fetch(`${API_BASE_URL}/paragraph/update-text-and-restructure`, {
+    const response = await fetch(`${API_BASE_URL}/api/paragraph/update-text-and-restructure`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

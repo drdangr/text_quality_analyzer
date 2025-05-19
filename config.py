@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 import os
 
 class Settings(BaseSettings):
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
     
     # Redis
-    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_URL: str = "redis://redis:6379/0"  # Изменено для работы с Docker
     SESSION_TTL: int = 3600  # 1 час
     
     # OpenAI (для semantic_function)
@@ -33,9 +33,14 @@ class Settings(BaseSettings):
     EXPORT_DIR: str = "exports"
     LOG_DIR: str = "logs" # Добавил LOG_DIR для logging_config
     
+    # Добавлены недостающие поля
+    vite_api_url: Optional[str] = None
+    log_level: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "allow"  # Разрешаем дополнительные поля
 
 # Создаем экземпляр настроек
 settings = Settings()

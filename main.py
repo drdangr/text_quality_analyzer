@@ -21,7 +21,7 @@ from services.export_service import ExportService
 log_level_from_settings = "DEBUG" if settings.DEBUG else "INFO"
 setup_logging(log_level_str=log_level_from_settings)
 
-# Получаем логгер для текущего модуля (main_new)
+# Получаем логгер для текущего модуля (main)
 logger = logging.getLogger(__name__) 
 
 # --- Инициализация FastAPI приложения --- 
@@ -191,7 +191,7 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main_new:app", 
+        "main:app", 
         host=settings.HOST, 
         port=settings.PORT, 
         reload=settings.DEBUG, 
