@@ -39,8 +39,20 @@
 
 Система построена по современной клиент-серверной архитектуре:
 
-- **Бэкенд:** Python, FastAPI, Pandas, ML-модули анализа
-- **Фронтенд:** React, TypeScript, Vite, dnd-kit, Framer Motion
+- **Бэкенд:** Python, FastAPI, Pandas, ML-модули анализа (запускается в Docker)
+- **Фронтенд:** React, TypeScript, Vite, dnd-kit, Framer Motion (запускается локально)
+
+### Требования к системе
+- **Для запуска бэкенда:**
+  - Docker и Docker Compose
+  - 4 ГБ ОЗУ минимум (8 ГБ рекомендуется)
+  - 10 ГБ свободного места на диске
+  - Доступ к интернету для загрузки контейнеров и доступа к OpenAI API
+
+- **Для запуска фронтенда:**
+  - Современный браузер (Chrome, Firefox, Edge)
+  - Node.js 18+ и npm/yarn
+  - 2 ГБ ОЗУ минимум
 
 ### Схема взаимодействия
 
@@ -61,42 +73,46 @@
 - Инкрементальное обновление при изменении абзацев
 - Экспорт результатов (CSV/JSON)
 - Безопасность, валидация, логирование
-- Использование внешней LLM (OpenAI API) для семантического анализа (fallback на локальную модель)
+- Использование внешней LLM (OpenAI API) для семантического анализа
 
 ### Установка и запуск бэкенда
 
 **Требования:**
-- Python 3.10+
-- pip
-- (Рекомендуется) venv/virtualenv
+- Docker и Docker Compose
+- OpenAI API ключ (опционально)
 
-**Установка:**
+**Установка и запуск через Docker:**
 ```bash
 # Клонируйте репозиторий
 $ git clone ...
-$ cd text_quality_analyzer/backend
+$ cd text_quality_analyzer
 
-# Создайте и активируйте виртуальное окружение
-$ python -m venv venv
-$ source venv/bin/activate  # или venv\Scripts\activate на Windows
+# Создайте .env файл с необходимыми переменными окружения
+$ cp example.env .env
+# Отредактируйте .env файл, добавив ваш OPENAI_API_KEY и другие необходимые параметры
 
-# Установите зависимости
-$ pip install -r requirements.txt
+# Запустите бэкенд через Docker Compose
+$ docker-compose up -d
+
+# Для просмотра логов
+$ docker-compose logs -f
 ```
 
-**Переменные окружения (.env):**
+**Переменные окружения:**
+В проекте используется файл example.env с примером всех доступных настроек. Основные параметры:
 ```
-OPENAI_API_KEY=sk-...   # Для семантического анализа через OpenAI
-REDIS_URL=redis://localhost:6379/0
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+OPENAI_API_KEY=sk-...   # Ключ API OpenAI для семантического анализа
+REDIS_URL=redis://redis:6379/0  # URL для подключения к Redis
+CORS_ORIGINS=http://localhost:5173  # Разрешенные источники для CORS
+VITE_API_URL=http://localhost:8000  # URL API для фронтенда
+DEBUG=False  # Режим отладки
+ENABLE_SEMANTIC_ANALYSIS=True  # Включение семантического анализа
+LOG_LEVEL=INFO  # Уровень логирования
 ```
 
-**Запуск:**
-```bash
-$ uvicorn main:app --reload
-```
-
-**Swagger UI:** http://localhost:8000/docs
+**Доступ к API и документации:**
+- API доступен по адресу: http://localhost:8000
+- Swagger UI: http://localhost:8000/docs
 
 ### Структура кода
 ```
@@ -169,21 +185,27 @@ def signal_strength(paragraph, topic):
   - 0.0 — абзац не по теме
 
 #### 3. Модуль семантической функции (semantic_function.py)
-- **Основной режим:** запрос к внешней LLM через OpenAI API (GPT-4.1)
-- **Fallback:** zero-shot классификация локальной моделью (MoritzLaurer/mDeBERTa-v3-base-mnli-xnli)
+- **Реализация:** запрос к внешней LLM через OpenAI API (GPT-4.1)
 - **Принцип:**
-  - Все абзацы отправляются в одном запросе (если возможно)
-  - Модель возвращает список меток (тезис, пример, метафора, и т.д.)
-  - Если API недоступен — используется локальная модель
+  - Все абзацы отправляются в одном запросе
+  - Модель анализирует текст и возвращает семантическую функцию для каждого абзаца
+  - Система классифицирует абзацы по таким категориям, как "ключевой тезис", "пример", "метафора", "шутка" и т.д.
 
 ### API и эндпоинты
 | Эндпоинт | Метод | Описание |
 |---|---|---|
 | `/api/analyze` | POST | Полный анализ текста: `{text, topic}` → JSON сессии |
 | `/api/update-paragraph` | POST | Обновление абзаца: `{session_id, paragraph_id, text}` |
+| `/api/paragraph/update-text-and-restructure` | POST | Обновление текста абзаца с возможным разделением или удалением: `{session_id, paragraph_id, text}` → полный анализ |
 | `/api/analysis/{session_id}` | GET | Получение анализа по session_id |
+| `/api/analysis/{session_id}/refresh-semantics` | POST | Пересчет семантического анализа для всей сессии |
 | `/api/export/{session_id}` | GET | Экспорт в CSV/JSON |
-| `/health` | GET | Проверка статуса |
+| `/api/merge-paragraphs` | POST | Объединение двух абзацев: `{session_id, paragraph_id_1, paragraph_id_2}` |
+| `/api/split-paragraph` | POST | Разделение абзаца: `{session_id, paragraph_id, split_position}` |
+| `/api/reorder-paragraphs` | POST | Изменение порядка абзацев: `{session_id, new_order: number[]}` |
+| `/api/update-topic` | POST | Обновление темы: `{session_id, topic}` |
+| `/api/paragraph/{session_id}/{paragraph_id}` | DELETE | Удаление абзаца |
+| `/health` | GET | Проверка статуса API |
 
 **Пример структуры ответа:**
 ```json
@@ -256,6 +278,8 @@ $ npm install
 $ npm run dev
 ```
 
+Фронтенд будет доступен по адресу: http://localhost:5173
+
 **Сборка для продакшена:**
 ```bash
 $ npm run build
@@ -268,21 +292,30 @@ frontend/my-card-view-app/
 │   ├── card_view_data.json
 │   └── config.json
 ├── src/
+│   ├── api/
+│   │   └── index.ts     # API-клиент
 │   ├── components/
-│   │   └── CardView/
-│   │       ├── Card.tsx
-│   │       ├── CardList.tsx
-│   │       └── types.ts
+│   │   ├── CardView/
+│   │   │   ├── Card.tsx
+│   │   │   ├── CardList.tsx
+│   │   │   ├── HeatMap.tsx
+│   │   │   ├── Controls.tsx
+│   │   │   ├── SemanticIcon/
+│   │   │   └── types.ts
+│   │   ├── Editor/
+│   │   └── shared/
+│   ├── assets/
+│   │   └── icons/
 │   ├── App.tsx
 │   └── main.tsx
 └── ...
 ```
 
 ### Работа с API и сценарии
-- Все операции (анализ, обновление, экспорт) через HTTP API
+- Все операции (анализ, обновление, экспорт) через HTTP API по адресу `http://localhost:8000`
+- URL API настраивается в файле `frontend/my-card-view-app/src/api/index.ts` 
 - Поддержка сессий анализа (session_id)
 - Инкрементальное обновление при изменении абзацев
-- Примеры запросов см. в разделе API
 - Пример работы:
   1. Загрузка текста → анализ → работа с карточками
   2. Редактирование абзаца → мгновенное обновление метрик
@@ -296,6 +329,25 @@ frontend/my-card-view-app/
 - Возможность интеграции с внешними системами через API
 
 ---
+
+## Типичные проблемы и их решения
+
+### Проблемы с запуском
+
+| Проблема | Возможная причина | Решение |
+|---|---|---|
+| Ошибка при запуске Docker: `permission denied` | Недостаточно прав для работы с Docker | Добавьте пользователя в группу docker: `sudo usermod -aG docker $USER`, затем перезагрузите систему |
+| Фронтенд не может подключиться к API | Неправильная конфигурация CORS | Проверьте CORS_ORIGINS в .env файле, убедитесь, что URL фронтенда там указан |
+| Ошибка `OPENAI_API_KEY is invalid` | Отсутствует или неверный ключ API | Проверьте ключ OpenAI API в .env файле |
+| Ошибка памяти при анализе больших текстов | Недостаточно RAM | Увеличьте выделенную память для Docker в настройках |
+
+### Проблемы при анализе
+
+| Проблема | Возможная причина | Решение |
+|---|---|---|
+| Низкое качество семантического анализа | Проблемы с OpenAI API | Проверьте логи на ошибки API и лимиты запросов |
+| Анализ занимает слишком много времени | Большой объем текста или медленное соединение | Разделите анализ на меньшие части |
+| Ошибки при экспорте | Проблемы с форматированием или правами доступа | Проверьте наличие директории `exports` и права записи |
 
 ## Контакты и развитие
 - [ ] Добавить раздел FAQ и troubleshooting
