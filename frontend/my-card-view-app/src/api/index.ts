@@ -1,5 +1,4 @@
 import type {
-    ParagraphData,
     AnalysisResponse, // Используем обновленное имя
     UpdateParagraphRequest,
     UpdateParagraphResponse,
@@ -41,22 +40,40 @@ async function handleResponseError(response: Response) {
 
 // Инициализация анализа (для нового текста)
 export async function initializeAnalysis(text: string, topic: string, sessionId?: string | null): Promise<AnalysisResponse> {
+    console.log('🚀 API initializeAnalysis called:', { 
+        textLength: text.length, 
+        topic, 
+        sessionId,
+        apiUrl: API_BASE_URL 
+    })
+    
     const requestBody: { text: string; topic: string; session_id?: string | null } = { text, topic };
     if (sessionId) {
         requestBody.session_id = sessionId;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json', // Явно указываем, что ожидаем JSON
-        },
-        body: JSON.stringify(requestBody),
-    });
-  
-    await handleResponseError(response); // Обработка ошибок
-    return response.json() as Promise<AnalysisResponse>;
+    console.log('📡 Sending request to:', `${API_BASE_URL}/api/analyze`)
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json', // Явно указываем, что ожидаем JSON
+            },
+            body: JSON.stringify(requestBody),
+        });
+        
+        console.log('📡 Response received:', response.status, response.statusText)
+        
+        await handleResponseError(response); // Обработка ошибок
+        const result = await response.json() as AnalysisResponse;
+        console.log('✅ API initializeAnalysis success:', result)
+        return result;
+    } catch (error) {
+        console.error('❌ API initializeAnalysis error:', error)
+        throw error;
+    }
 }
 
 // Получение результатов анализа по session_id

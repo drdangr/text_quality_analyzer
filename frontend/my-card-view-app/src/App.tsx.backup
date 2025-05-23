@@ -1,0 +1,30 @@
+import React from 'react'
+import { useAppStore } from './store/appStore'
+import './App.css'
+
+function App() {
+  const { loading, error } = useAppStore()
+
+  return (
+    <div className="h-screen bg-gray-100 flex flex-col">
+      <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-3">
+        <h1 className="text-xl font-semibold text-gray-800">
+          Тест анализатора текста
+        </h1>
+      </header>
+      
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Тестовая версия</h2>
+          <p className="text-gray-600 mb-4">Проверка базовой работы store</p>
+          <div className="bg-white p-4 rounded shadow">
+            <p>Loading: {loading ? 'true' : 'false'}</p>
+            <p>Error: {error || 'null'}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default App 

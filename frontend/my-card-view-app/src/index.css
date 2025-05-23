@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -74,6 +78,12 @@ button:focus-visible {
   }
 }
 
+/* Анимация спиннера */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 /* Новая анимация для текстового спиннера (точек) */
 @keyframes dots-breath {
   0%, 100% { opacity: 0.2; }
@@ -99,3 +109,35 @@ button:focus-visible {
 }
 
 /* .loading-dots span:nth-child(3) - без задержки, или можно убрать для 2х точек */
+
+/* Анимация для подсказки о теме */
+@keyframes fadeInShake {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+  }
+  60% {
+    transform: translateY(0) scale(0.98);
+  }
+  80% {
+    transform: translateY(0) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes card-jump {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+}
+
+.card-jump {
+  animation: card-jump 0.6s ease;
+}
