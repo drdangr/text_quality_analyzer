@@ -349,20 +349,29 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
       // Обновляем с данными от сервера
       setSession(updatedSession)
       
-      // Обновляем полный текст в редакторе
+      // Обновляем полный текст в редакторе и состояние редактирования
       const fullText = updatedSession.paragraphs
         .sort((a: any, b: any) => a.id - b.id)
         .map((p: any) => p.text)
         .join('\n\n')
       setEditorFullText(fullText)
+      updateEditingText(fullText)
       
       console.log('✅ Порядок карточек успешно изменен')
     } catch (error) {
       console.error('❌ Ошибка при изменении порядка:', error)
       // Откатываем к исходному состоянию в случае ошибки
-      // session уже содержит исходное состояние, просто перерендеримся
+      setSession(session)
+      
+      // Также откатываем текст в редакторе
+      const originalText = session.paragraphs
+        .sort((a: any, b: any) => a.id - b.id)
+        .map((p: any) => p.text)
+        .join('\n\n')
+      setEditorFullText(originalText)
+      updateEditingText(originalText)
     }
-  }, [session, setSession, setEditorFullText])
+  }, [session, setSession, setEditorFullText, updateEditingText])
 
   // Функция для обновления текста в редакторе при изменениях
   const updateFullText = useCallback(() => {
