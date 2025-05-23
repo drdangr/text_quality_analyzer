@@ -291,8 +291,8 @@ export const useAppStore = create<AppState>()(
           const state = get();
           if (!state.session) return;
 
-          const currentText = mode === 'card-editor' && paragraphId
-            ? state.session.paragraphs.find(p => p.id === paragraphId)?.text || ''
+          const currentText = mode === 'card-editor' && paragraphId !== null
+            ? state.session.paragraphs.map(p => p.text).join('\n\n')
             : state.editorFullText;
 
           set({
@@ -316,6 +316,11 @@ export const useAppStore = create<AppState>()(
             timestamp: new Date().toLocaleTimeString()
           });
 
+          // Если текст не изменился, пропускаем обновление
+          if (state.editingState.text === text && state.editorFullText === text) {
+            return;
+          }
+
           // Если есть активная сессия, обновляем текст в карточках
           if (state.session) {
             const newParagraphs = text.split('\n\n').map((paragraphText, index) => ({
@@ -334,22 +339,22 @@ export const useAppStore = create<AppState>()(
               session: {
                 ...state.session,
                 paragraphs: newParagraphs
+              },
+              // Всегда обновляем оба состояния текста
+              editorFullText: text,
+              editingState: {
+                ...state.editingState,
+                text,
+                lastChangeTimestamp: Date.now(),
+                positions
               }
             });
 
-            // Запускаем отложенный анализ
-            debouncedAnalyze(text);
-          }
-
-          // Обновляем состояние редактирования
-          set({
-            editingState: {
-              ...state.editingState,
-              text,
-              lastChangeTimestamp: Date.now(),
-              positions
+            // Запускаем отложенный анализ только если редактирование происходит в текстовом редакторе
+            if (state.editingState.mode === 'text-editor') {
+              debouncedAnalyze(text);
             }
-          });
+          }
         },
 
         finishEditing: async () => {

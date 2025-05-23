@@ -306,7 +306,8 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
     selectedParagraphId,
     setSelectedParagraph,
     scrollToCard,
-    setSession
+    setSession,
+    updateEditingText
   } = useAppStore()
 
   // Настройка сенсоров для drag-and-drop
@@ -396,12 +397,13 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
         // Обновляем сессию в store
         setSession(updatedSession)
         
-        // Обновляем полный текст в редакторе
+        // Обновляем полный текст в редакторе и состояние редактирования
         const fullText = updatedSession.paragraphs
           .sort((a: any, b: any) => a.id - b.id)
           .map((p: any) => p.text)
           .join('\n\n')
         setEditorFullText(fullText)
+        updateEditingText(fullText)
         
         console.log('✅ Карточка успешно сохранена')
       } catch (error) {
@@ -412,7 +414,7 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
     
     setEditingCardId(null)
     setEditingText('')
-  }, [editingCardId, editingText, session, setSession, setEditorFullText])
+  }, [editingCardId, editingText, session, setSession, setEditorFullText, updateEditingText])
 
   // Отмена редактирования
   const cancelCardEdit = useCallback(() => {
@@ -454,12 +456,13 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
         // Обновляем сессию в store
         setSession(updatedSession)
         
-        // Обновляем полный текст в редакторе
+        // Обновляем полный текст в редакторе и состояние редактирования
         const fullText = updatedSession.paragraphs
           .sort((a: any, b: any) => a.id - b.id)
           .map((p: any) => p.text)
           .join('\n\n')
         setEditorFullText(fullText)
+        updateEditingText(fullText)
         
         console.log('✅ Карточки успешно объединены')
       } catch (error) {
@@ -467,7 +470,7 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
         // TODO: Показать уведомление об ошибке
       }
     }
-  }, [session, setSession, setEditorFullText])
+  }, [session, setSession, setEditorFullText, updateEditingText])
 
   // Перемещение карточки
   const moveCard = useCallback((fromId: number, toId: number) => {

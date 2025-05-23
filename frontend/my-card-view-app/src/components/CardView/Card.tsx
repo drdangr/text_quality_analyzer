@@ -72,6 +72,8 @@ const Card: React.FC<CardProps> = ({
   getHeaderTextColor,
   getEditingControlsTextColor
 }) => {
+  const { session, startEditing, updateEditingText, setEditorFullText } = useAppStore();
+
   // Функция для линейной интерполяции между двумя значениями
   const lerp = (start: number, end: number, t: number) => {
     return Math.round(start * (1 - t) + end * t);
@@ -214,7 +216,29 @@ const Card: React.FC<CardProps> = ({
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     onEditingTextChange(newText);
-    
+
+    // Обновляем текст в редакторе
+    if (session) {
+      // Создаем копию массива параграфов
+      const updatedParagraphs = [...session.paragraphs];
+      // Обновляем текст текущего параграфа
+      updatedParagraphs[paragraph.id] = {
+        ...updatedParagraphs[paragraph.id],
+        text: newText
+      };
+      
+      // Собираем полный текст
+      const fullText = updatedParagraphs
+        .map(p => p.text)
+        .join('\n\n');
+
+      // Начинаем редактирование, если еще не начали
+      startEditing('text-editor');
+      
+      // Обновляем текст
+      updateEditingText(fullText);
+    }
+
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;

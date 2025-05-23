@@ -304,7 +304,7 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
         }}>
           <textarea
             ref={textareaRef}
-            value={editingState.mode === 'text-editor' ? editingState.text : editorFullText}
+            value={editingState.text || editorFullText}
             onChange={(e) => handleTextChange(e.target.value)}
             disabled={loading}
             placeholder="Введите или вставьте текст здесь, или перетащите .txt файл..."
