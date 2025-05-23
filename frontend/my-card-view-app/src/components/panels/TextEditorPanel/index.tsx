@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { Panel } from '../Panel'
 import { useAppStore } from '../../../store/appStore'
 import { useClipboard, useFileDrop } from '../../../hooks/usePanelSync'
@@ -15,9 +15,11 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
   onToggleExpanded 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [showTopicHint, setShowTopicHint] = useState<boolean>(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [cursorPosition, setCursorPosition] = useState<number | null>(null)
   
   const { 
     editorFullText,
@@ -28,11 +30,64 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
     backendError,
     handleAnalyzeText,
     setEditorFullText,
-    setEditorTopic
+    setEditorTopic,
+    editingState,
+    startEditing,
+    updateEditingText,
+    finishEditing,
+    showEditorSettings,
+    setShowEditorSettings
   } = useAppStore()
   
   const { pasteFromClipboard } = useClipboard()
   const { handleDrop } = useFileDrop()
+
+  useEffect(() => {
+    if (editorFullText && editingState.mode === 'none') {
+      startEditing('text-editor');
+    }
+  }, [editorFullText, editingState.mode, startEditing]);
+
+  useEffect(() => {
+    if (showEditorSettings && !isExpanded) {
+      onToggleExpanded?.();
+    }
+  }, [showEditorSettings, isExpanded, onToggleExpanded]);
+
+  const handleTextChange = useCallback((newText: string) => {
+    if (textareaRef.current) {
+      setCursorPosition(textareaRef.current.selectionStart);
+    }
+    
+    if (editingState.mode === 'none') {
+      startEditing('text-editor');
+    }
+    updateEditingText(newText);
+  }, [editingState.mode, startEditing, updateEditingText]);
+
+  useEffect(() => {
+    if (textareaRef.current && cursorPosition !== null) {
+      textareaRef.current.setSelectionRange(cursorPosition, cursorPosition);
+      setCursorPosition(null);
+    }
+  }, [editingState.text, cursorPosition]);
+
+  const handleAnalyze = useCallback(async () => {
+    if (!editingState.text.trim() || !editorTopic.trim()) {
+      if (editingState.text.trim() && !editorTopic.trim()) {
+        setShowTopicHint(true)
+        setTimeout(() => setShowTopicHint(false), 3000)
+      }
+      return
+    }
+    
+    try {
+      await finishEditing();
+      await handleAnalyzeText(editingState.text, editorTopic)
+    } catch (error) {
+      console.error('❌ Analysis failed:', error)
+    }
+  }, [editingState.text, editorTopic, finishEditing, handleAnalyzeText])
 
   const handleFileLoad = useCallback(async (file: File) => {
     setFileError(null)
@@ -50,36 +105,19 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
     try {
       const text = await handleDrop([file] as any)
       if (text) {
-        setEditorFullText(text)
+        handleTextChange(text)
       }
     } catch (error) {
       setFileError('Ошибка при чтении файла')
     }
-  }, [handleDrop, setEditorFullText])
+  }, [handleDrop, handleTextChange])
 
   const handlePaste = useCallback(async () => {
     const text = await pasteFromClipboard()
     if (text) {
-      setEditorFullText(text)
+      handleTextChange(text)
     }
-  }, [pasteFromClipboard, setEditorFullText])
-
-  const handleAnalyze = useCallback(async () => {
-    if (!editorFullText.trim() || !editorTopic.trim()) {
-      // Показываем подсказку если тема пустая, но есть текст
-      if (editorFullText.trim() && !editorTopic.trim()) {
-        setShowTopicHint(true)
-        setTimeout(() => setShowTopicHint(false), 3000) // Скрываем через 3 секунды
-      }
-      return
-    }
-    
-    try {
-      await handleAnalyzeText(editorFullText, editorTopic)
-    } catch (error) {
-      console.error('❌ Analysis failed:', error)
-    }
-  }, [editorFullText, editorTopic, handleAnalyzeText])
+  }, [pasteFromClipboard, handleTextChange])
 
   const headerControls = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -125,7 +163,7 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
       </div>
       <button
         onClick={handleAnalyze}
-        disabled={loading || !isBackendReady || !editorFullText.trim()}
+        disabled={loading || !isBackendReady || !editingState.text.trim()}
         style={{
           padding: '8px 16px',
           backgroundColor: '#7c3aed',
@@ -135,11 +173,11 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
           fontSize: '14px',
           cursor: 'pointer',
           width: '100%',
-          opacity: (loading || !isBackendReady || !editorFullText.trim()) ? 0.5 : 1,
+          opacity: (loading || !isBackendReady || !editingState.text.trim()) ? 0.5 : 1,
           transition: 'background-color 0.2s'
         }}
         onMouseEnter={e => {
-          const disabled = loading || !isBackendReady || !editorFullText.trim()
+          const disabled = loading || !isBackendReady || !editingState.text.trim()
           if (!disabled) (e.target as HTMLButtonElement).style.backgroundColor = '#6d28d9'
         }}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.backgroundColor = '#7c3aed'}
@@ -185,8 +223,8 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
       icon={icon}
       isExpanded={isExpanded}
       onToggleExpanded={onToggleExpanded}
-      showSettings={showSettings}
-      onToggleSettings={() => setShowSettings(!showSettings)}
+      showSettings={showEditorSettings}
+      onToggleSettings={() => setShowEditorSettings(!showEditorSettings)}
     >
       <div style={{ 
         height: '100%', 
@@ -194,7 +232,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
         flexDirection: 'column', 
         padding: '16px'
       }}>
-        {/* Topic Input */}
         <div style={{ 
           flexShrink: 0,
           marginBottom: '16px',
@@ -214,7 +251,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
             value={editorTopic}
             onChange={(e) => {
               setEditorTopic(e.target.value)
-              // Скрываем подсказку при вводе темы
               if (showTopicHint) setShowTopicHint(false)
             }}
             disabled={loading}
@@ -233,7 +269,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
             onBlur={e => e.target.style.borderColor = showTopicHint ? '#ef4444' : '#d1d5db'}
           />
           
-          {/* Подсказка о необходимости ввести тему */}
           {showTopicHint && (
             <div style={{
               position: 'absolute',
@@ -261,7 +296,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
           )}
         </div>
 
-        {/* Text Editor */}
         <div style={{ 
           flex: 1, 
           display: 'flex', 
@@ -269,8 +303,9 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
           minHeight: '200px'
         }}>
           <textarea
-            value={editorFullText}
-            onChange={(e) => setEditorFullText(e.target.value)}
+            ref={textareaRef}
+            value={editingState.mode === 'text-editor' ? editingState.text : editorFullText}
+            onChange={(e) => handleTextChange(e.target.value)}
             disabled={loading}
             placeholder="Введите или вставьте текст здесь, или перетащите .txt файл..."
             style={{
@@ -294,7 +329,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
           />
         </div>
 
-        {/* Error Messages */}
         {fileError && (
           <div style={{ 
             padding: '12px', 
@@ -341,7 +375,6 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
         )}
       </div>
       
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"

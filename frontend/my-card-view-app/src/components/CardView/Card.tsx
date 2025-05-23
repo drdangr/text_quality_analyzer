@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import type { ParagraphData } from './types';
 import SemanticIcon from './SemanticIcon';
+import { useAppStore } from '../../store/appStore';
 
 interface CardProps {
   paragraph: ParagraphData;
@@ -25,6 +26,11 @@ interface CardProps {
   isLast: boolean;
   onMergeDown: () => void;
   onDeleteRequest: (paragraphId: number) => void;
+  onSaveEdit: () => Promise<void>;
+  getCardColor: (paragraph: ParagraphData) => string;
+  getTextColor: (paragraph: ParagraphData) => string;
+  getHeaderTextColor: (paragraph: ParagraphData) => string;
+  getEditingControlsTextColor: (paragraph: ParagraphData) => string;
 }
 
 // Вспомогательная функция для парсинга HEX в RGB
@@ -59,7 +65,12 @@ const Card: React.FC<CardProps> = ({
   isFirst,
   isLast,
   onMergeDown,
-  onDeleteRequest
+  onDeleteRequest,
+  onSaveEdit,
+  getCardColor,
+  getTextColor,
+  getHeaderTextColor,
+  getEditingControlsTextColor
 }) => {
   // Функция для линейной интерполяции между двумя значениями
   const lerp = (start: number, end: number, t: number) => {
@@ -75,7 +86,7 @@ const Card: React.FC<CardProps> = ({
   const normalizedSignal = normalize(paragraph.metrics.signal_strength || 0, minSignal, maxSignal);
   const normalizedComplexity = normalize(paragraph.metrics.complexity || 0, minComplexity, maxComplexity);
 
-  const cardContentBgColor = getBackgroundColor(); // Фон контентной части
+  const cardContentBgColor = getCardColor(paragraph);
 
   function getBackgroundColor() { // Оставил function для hoisting если нужно, но тут не критично
     const startColor = hexToRgb(signalMinColor) || { r: 255, g: 255, b: 255 };
@@ -121,8 +132,8 @@ const Card: React.FC<CardProps> = ({
     return `rgb(${r}, ${g}, ${b})`;
   };
 
-  const headerTextColor = '#333333'; // Фиксированный темный цвет для шапки
-  const editingControlsTextColor = getContrastBasedTextColor(cardContentBgColor); // Цвет для кнопок и подсказки в режиме редактирования
+  const headerTextColor = getHeaderTextColor(paragraph);
+  const editingControlsTextColor = getEditingControlsTextColor(paragraph);
   const paragraphTextColor = getParagraphContentTextColor();
 
   const cardWrapperStyle: React.CSSProperties = {
@@ -201,7 +212,9 @@ const Card: React.FC<CardProps> = ({
   }, [isEditing, editingText]);
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onEditingTextChange(e.target.value);
+    const newText = e.target.value;
+    onEditingTextChange(newText);
+    
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
@@ -281,6 +294,10 @@ const Card: React.FC<CardProps> = ({
   // Это значение должно быть достаточным, чтобы вместить иконку перетаскивания и кнопку X, когда они видимы
   // Иконка перетаскивания (⋮⋮) примерно 10-12px + отступ, кнопка X еще ~15px. Возьмем с запасом.
   const headerInfoPaddingLeft = '30px'; // Фиксированный отступ
+
+  const handleSave = async () => {
+    await onSaveEdit();
+  };
 
   return (
     <div style={{ position: 'relative', marginBottom: '1px' }}>
@@ -407,7 +424,7 @@ const Card: React.FC<CardProps> = ({
                     Отмена
                   </button>
                   <button
-                    onClick={onSave}
+                    onClick={handleSave}
                     disabled={isSaving} 
                     style={isSaving ? {...saveButtonStyle, opacity: 0.5, cursor: 'not-allowed'} : saveButtonStyle}
                     title={editingText.trim() === '' ? "Сохранение пустого абзаца приведет к его удалению" : "Сохранить изменения"}

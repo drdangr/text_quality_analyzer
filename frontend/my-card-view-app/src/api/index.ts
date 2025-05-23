@@ -302,4 +302,56 @@ export async function loadDemoData(): Promise<AnalysisResponse> {
         console.error("Ошибка загрузки демо-данных:", error);
         throw error;
     }
-} 
+}
+
+// Интерфейс для метрик абзаца
+interface ParagraphMetrics {
+  signal_strength: number;
+  complexity: number;
+  semantic_function?: string;
+}
+
+// Функция для расчета метрик одного абзаца
+export const calculateParagraphMetrics = async (
+  sessionId: string,
+  paragraphId: number,
+  text: string
+): Promise<ParagraphMetrics> => {
+  const response = await fetch(`${API_BASE_URL}/api/paragraph/${sessionId}/${paragraphId}/metrics`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: text,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Ошибка при расчете метрик абзаца');
+  }
+
+  return response.json();
+};
+
+// Функция для расчета метрик всего текста
+export const calculateTextMetrics = async (
+  sessionId: string,
+  text: string
+): Promise<AnalysisResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/analysis/${sessionId}/metrics`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: text,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Ошибка при расчете метрик текста');
+  }
+
+  return response.json();
+}; 

@@ -14,6 +14,7 @@ from api.models import (
     ParagraphSplitRequest,
     ParagraphsReorderRequest,
     UpdateTopicRequest,
+    ParagraphMetrics,
     # ExportRequest # Пока не используем, экспорт через GET
 )
 
@@ -334,3 +335,51 @@ async def delete_paragraph_endpoint(
     except Exception as e:
         logger.error(f"Критическая ошибка в эндпоинте DELETE /paragraph/{session_id}/{paragraph_id_to_delete}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера при удалении абзаца: {e}")
+
+@router.post("/paragraph/{session_id}/{paragraph_id}/metrics", response_model=ParagraphMetrics)
+async def calculate_paragraph_metrics_endpoint(
+    session_id: str = Path(..., description="ID сессии анализа"),
+    paragraph_id: int = Path(..., description="ID абзаца"),
+    text: str = Body(..., description="Текст абзаца для расчета метрик"),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> ParagraphMetrics:
+    """
+    Рассчитывает метрики для одного абзаца без сохранения изменений.
+    Используется для предварительного просмотра метрик при редактировании.
+    """
+    logger.info(f"API /paragraph/{session_id}/{paragraph_id}/metrics вызван.")
+    try:
+        metrics = await orchestrator.calculate_paragraph_metrics(
+            session_id=session_id,
+            paragraph_id=paragraph_id,
+            text=text
+        )
+        if metrics is None:
+            raise HTTPException(status_code=404, detail="Session not found or metrics calculation failed")
+        return metrics
+    except Exception as e:
+        logger.error(f"Ошибка при расчете метрик абзаца: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/analysis/{session_id}/metrics", response_model=AnalysisResponse)
+async def calculate_text_metrics_endpoint(
+    session_id: str = Path(..., description="ID сессии анализа"),
+    text: str = Body(..., description="Полный текст для расчета метрик"),
+    orchestrator: AnalysisOrchestrator = Depends(get_orchestrator_di)
+) -> AnalysisResponse:
+    """
+    Рассчитывает метрики для всего текста без сохранения изменений.
+    Используется для предварительного просмотра метрик при редактировании.
+    """
+    logger.info(f"API /analysis/{session_id}/metrics вызван.")
+    try:
+        analysis = await orchestrator.calculate_text_metrics(
+            session_id=session_id,
+            text=text
+        )
+        if analysis is None:
+            raise HTTPException(status_code=404, detail="Session not found or metrics calculation failed")
+        return analysis
+    except Exception as e:
+        logger.error(f"Ошибка при расчете метрик текста: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
