@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Panel } from '../Panel'
 import { useAppStore } from '../../../store/appStore'
 import { HeatMap } from './HeatMap'
@@ -36,8 +36,8 @@ const SortableCard: React.FC<{
   editingText: string
   setEditingText: (text: string) => void
   startEditingCard: (id: number, text: string) => void
-  saveCardEdit: () => void
-  cancelCardEdit: () => void
+  finishCardEditing: () => void
+  debouncedSyncToEditor: (cardId: number, text: string) => void
   mergeWithNext: (id: number) => void
   deleteParagraph: (id: number) => void
   setSelectedParagraph: (id: string) => void
@@ -54,8 +54,8 @@ const SortableCard: React.FC<{
   editingText, 
   setEditingText, 
   startEditingCard, 
-  saveCardEdit, 
-  cancelCardEdit, 
+  finishCardEditing,
+  debouncedSyncToEditor,
   mergeWithNext, 
   deleteParagraph,
   setSelectedParagraph, 
@@ -74,9 +74,75 @@ const SortableCard: React.FC<{
     transition,
   } = useSortable({ id: paragraph.id.toString() })
 
+  const [isEditing, setIsEditing] = useState(false)
+  const [localText, setLocalText] = useState(paragraph.text)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Синхронизируем локальный текст с paragraph.text когда карточка не редактируется
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalText(paragraph.text)
+    }
+  }, [paragraph.text, isEditing])
+
+  // Автоматически подгоняем высоту textarea
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      const textarea = textareaRef.current
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }, [isEditing, localText])
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  }
+
+  const handleStartEditing = () => {
+    setIsEditing(true)
+    setLocalText(paragraph.text)
+    startEditingCard(paragraph.id, paragraph.text)
+    
+    // Фокусируемся на textarea после рендера
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        // Устанавливаем курсор в конец
+        const length = textareaRef.current.value.length
+        textareaRef.current.setSelectionRange(length, length)
+      }
+    }, 0)
+  }
+
+  const handleTextChange = (newText: string) => {
+    setLocalText(newText)
+    setEditingText(newText)
+    
+    // Простая синхронизация с редактором (только отображение)
+    if (editingCardId === paragraph.id) {
+      debouncedSyncToEditor(paragraph.id, newText)
+    }
+  }
+
+  const handleFinishEditing = () => {
+    setIsEditing(false)
+    finishCardEditing()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault()
+      // Убираем фокус с textarea, что автоматически вызовет onBlur и завершит редактирование
+      if (textareaRef.current) {
+        textareaRef.current.blur()
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setLocalText(paragraph.text) // Возвращаем исходный текст
+      setIsEditing(false)
+      finishCardEditing()
+    }
   }
 
   // Цвет шапки - фиксированный светло-серый
@@ -101,12 +167,10 @@ const SortableCard: React.FC<{
       >
         {/* Шапка карточки с фиксированным цветом */}
         <div 
-          {...listeners}
           style={{
             backgroundColor: headerColor,
             padding: '4px 12px',
             borderBottom: '1px solid #e5e7eb',
-            cursor: 'grab',
             position: 'relative',
             minHeight: 'auto',
             display: 'flex',
@@ -115,14 +179,19 @@ const SortableCard: React.FC<{
             lineHeight: '1.2'
           }}
         >
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            fontSize: `${Math.max(10, fontSize - 2)}px`,
-            color: headerTextColor,
-            flex: 1
-          }}>
+          {/* Область для drag-and-drop */}
+          <div 
+            {...listeners}
+            style={{
+              cursor: 'grab',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              fontSize: `${Math.max(10, fontSize - 2)}px`,
+              color: headerTextColor,
+              flex: 1
+            }}
+          >
             <span style={{ fontWeight: '600' }}>ID: {paragraph.id}</span>
             <span>Сигнал: {paragraph.metrics.signal_strength?.toFixed(2) || 'N/A'}</span>
             <span>Сложность: {paragraph.metrics.complexity?.toFixed(2) || 'N/A'}</span>
@@ -133,27 +202,47 @@ const SortableCard: React.FC<{
             )}
           </div>
           
-          {/* Кнопки управления */}
+          {/* Кнопки управления - ВНЕ области drag-and-drop */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <button
               onClick={(e) => {
+                console.log('🗑️ Нажата кнопка удаления для карточки:', paragraph.id)
                 e.stopPropagation()
-                if (window.confirm('Удалить этот абзац?')) {
-                  deleteParagraph(paragraph.id)
-                }
+                e.preventDefault()
+                console.log('✅ Удаление карточки:', paragraph.id)
+                deleteParagraph(paragraph.id)
+              }}
+              onMouseDown={(e) => {
+                console.log('👆 MouseDown на кнопке удаления:', paragraph.id)
+                e.stopPropagation() // Останавливаем всплытие для drag-and-drop
               }}
               style={{
-                padding: '2px 6px',
-                fontSize: '14px',
-                backgroundColor: 'transparent',
-                border: 'none',
+                padding: '4px 8px',
+                fontSize: '16px',
+                backgroundColor: '#fee2e2',
+                color: '#dc2626',
+                border: '1px solid #fecaca',
+                borderRadius: '4px',
                 cursor: 'pointer',
-                color: headerTextColor,
-                opacity: 0.6,
-                transition: 'opacity 0.2s'
+                transition: 'all 0.2s',
+                minWidth: '28px',
+                minHeight: '28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+                position: 'relative',
+                pointerEvents: 'auto'
               }}
-              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+              onMouseEnter={e => {
+                console.log('🖱️ Hover на кнопке удаления:', paragraph.id)
+                e.currentTarget.style.backgroundColor = '#fecaca'
+                e.currentTarget.style.transform = 'scale(1.1)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = '#fee2e2'
+                e.currentTarget.style.transform = 'scale(1)'
+              }}
               title="Удалить абзац"
             >
               ×
@@ -166,84 +255,55 @@ const SortableCard: React.FC<{
           backgroundColor: getCardColor(paragraph),
           padding: '16px'
         }}>
-          {/* Текст карточки или редактор */}
-          {editingCardId === paragraph.id ? (
-            <div>
-              <textarea
-                value={editingText}
-                onChange={(e) => setEditingText(e.target.value)}
-                style={{
-                  width: '100%',
-                  minHeight: '80px',
-                  padding: '8px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  fontSize: `${fontSize}px`,
-                  fontFamily: fontFamily,
-                  resize: 'vertical'
-                }}
-                autoFocus
-              />
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    saveCardEdit()
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    fontSize: '12px',
-                    backgroundColor: '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ✅ Сохранить
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    cancelCardEdit()
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    fontSize: '12px',
-                    backgroundColor: '#ef4444',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ❌ Отмена
-                </button>
-              </div>
-            </div>
+          {/* Текст карточки - либо textarea для редактирования, либо обычный текст */}
+          {isEditing ? (
+            <textarea
+              ref={textareaRef}
+              value={localText}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onBlur={handleFinishEditing}
+              onKeyDown={handleKeyDown}
+              style={{
+                width: '100%',
+                fontSize: `${fontSize}px`,
+                fontFamily: fontFamily,
+                color: getTextColor(paragraph),
+                lineHeight: '1.6',
+                margin: 0,
+                padding: '4px',
+                borderRadius: '4px',
+                outline: 'none',
+                border: '2px solid #7c3aed',
+                background: 'rgba(255, 255, 255, 0.9)',
+                resize: 'none',
+                overflow: 'hidden'
+              }}
+              placeholder="Введите текст абзаца..."
+            />
           ) : (
-            <p style={{
-              fontSize: `${fontSize}px`,
-              color: getTextColor(paragraph),
-              lineHeight: '1.6',
-              margin: 0,
-              cursor: 'text',
-              padding: '4px',
-              borderRadius: '4px',
-              transition: 'background-color 0.2s'
-            }}
-            onClick={(e) => {
-              e.stopPropagation() // Предотвращаем выделение карточки
-              startEditingCard(paragraph.id, paragraph.text)
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent'
-            }}
+            <p 
+              onClick={handleStartEditing}
+              style={{
+                fontSize: `${fontSize}px`,
+                color: getTextColor(paragraph),
+                lineHeight: '1.6',
+                margin: 0,
+                cursor: 'text',
+                padding: '4px',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s',
+                minHeight: '1.6em',
+                whiteSpace: 'pre-wrap'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+              }}
+              title="Нажмите для редактирования (Ctrl+Enter - сохранить, Esc - отмена)"
             >
-              {paragraph.text}
+              {paragraph.text || 'Пустой абзац - нажмите для редактирования'}
             </p>
           )}
         </div>
@@ -307,7 +367,9 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
     setSelectedParagraph,
     scrollToCard,
     setSession,
-    updateEditingText
+    updateEditingText,
+    editingState,
+    startEditing
   } = useAppStore()
 
   // Настройка сенсоров для drag-and-drop
@@ -317,6 +379,39 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
       coordinateGetter: sortableKeyboardCoordinates,
     })
   )
+
+  // Простая функция синхронизации с текстовым редактором (только отображение)
+  const syncToEditor = useCallback((cardId: number, newText: string) => {
+    if (session) {
+      console.log('🔄 Синхронизация с текстовым редактором:', cardId)
+      
+      // Обновляем текст карточки в сессии локально
+      const updatedParagraphs = session.paragraphs.map(p => 
+        p.id === cardId ? { ...p, text: newText } : p
+      )
+      
+      // Создаем полный текст для редактора
+      const fullText = updatedParagraphs
+        .sort((a, b) => a.id - b.id)
+        .map(p => p.text)
+        .join('\n\n')
+      
+      // Обновляем сессию локально
+      setSession({
+        ...session,
+        paragraphs: updatedParagraphs
+      })
+      
+      // Синхронизируем с текстовым редактором
+      setEditorFullText(fullText)
+      
+      // Обновляем состояние редактирования
+      if (editingState.mode === 'none') {
+        startEditing('card-editor', cardId)
+      }
+      updateEditingText(fullText)
+    }
+  }, [session, setSession, setEditorFullText, editingState.mode, startEditing, updateEditingText])
 
   // Обработчик завершения перетаскивания
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
@@ -373,72 +468,54 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
     }
   }, [session, setSession, setEditorFullText, updateEditingText])
 
-  // Функция для обновления текста в редакторе при изменениях
-  const updateFullText = useCallback(() => {
-    if (session) {
-      const fullText = session.paragraphs
-        .sort((a, b) => a.id - b.id)
-        .map(p => p.text)
-        .join('\n\n')
-      setEditorFullText(fullText)
-    }
-  }, [session, setEditorFullText])
-
   // Начало редактирования карточки
   const startEditingCard = useCallback((cardId: number, currentText: string) => {
+    console.log('🔄 Начинаем редактирование карточки:', cardId)
     setEditingCardId(cardId)
     setEditingText(currentText)
   }, [])
 
-  // Сохранение изменений карточки
-  const saveCardEdit = useCallback(async () => {
-    if (editingCardId && session) {
-      console.log('Сохранение изменений для карточки', editingCardId, editingText)
+  // Завершение редактирования карточки
+  const finishCardEditing = useCallback(async () => {
+    console.log('✅ Завершаем редактирование карточки:', editingCardId)
+    
+    // Финальная синхронизация при завершении редактирования
+    if (editingCardId !== null && editingText && session) {
+      // Сначала синхронизируем локально
+      syncToEditor(editingCardId, editingText)
       
-      try {
-        // Используем API для сохранения с возможным разделением/удалением
-        const updatedSession = await updateTextAndRestructureParagraph(
-          session.metadata.session_id,
-          editingCardId,
-          editingText
-        )
-        
-        // Обновляем сессию в store
-        setSession(updatedSession)
-        
-        // Обновляем полный текст в редакторе и состояние редактирования
-        const fullText = updatedSession.paragraphs
-          .sort((a: any, b: any) => a.id - b.id)
-          .map((p: any) => p.text)
-          .join('\n\n')
-        setEditorFullText(fullText)
-        updateEditingText(fullText)
-        
-        console.log('✅ Карточка успешно сохранена')
-      } catch (error) {
-        console.error('❌ Ошибка при сохранении карточки:', error)
-        // TODO: Показать уведомление об ошибке
+      // Если есть двойные переводы строк, запускаем API для разбиения абзацев
+      if (editingText.includes('\n\n')) {
+        try {
+          console.log('🔄 Разбиение абзацев через API')
+          const updatedSession = await updateTextAndRestructureParagraph(
+            session.metadata.session_id,
+            editingCardId,
+            editingText
+          )
+          
+          // Обновляем сессию с данными от сервера
+          setSession(updatedSession)
+          
+          // Синхронизируем с текстовым редактором
+          const fullText = updatedSession.paragraphs
+            .sort((a: any, b: any) => a.id - b.id)
+            .map((p: any) => p.text)
+            .join('\n\n')
+          
+          setEditorFullText(fullText)
+          updateEditingText(fullText)
+          
+          console.log('✅ Разбиение абзацев завершено, абзацев:', updatedSession.paragraphs.length)
+        } catch (error) {
+          console.error('❌ Ошибка при разбиении абзацев:', error)
+        }
       }
     }
     
     setEditingCardId(null)
     setEditingText('')
-  }, [editingCardId, editingText, session, setSession, setEditorFullText, updateEditingText])
-
-  // Отмена редактирования
-  const cancelCardEdit = useCallback(() => {
-    setEditingCardId(null)
-    setEditingText('')
-  }, [])
-
-  // Разделение карточки на две
-  const splitCard = useCallback((cardId: number, splitAt: number) => {
-    if (session) {
-      console.log('Разделение карточки', cardId, 'в позиции', splitAt)
-      // TODO: Реализовать API для разделения параграфа
-      updateFullText()
-    }
-  }, [session, updateFullText])
+  }, [editingCardId, editingText, session, syncToEditor, setSession, setEditorFullText, updateEditingText])
 
   // Объединение карточек
   const mergeWithNext = useCallback(async (cardId: number) => {
@@ -486,9 +563,9 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
     if (session) {
       console.log('Перемещение карточки', fromId, 'в позицию', toId)
       // TODO: Реализовать drag-and-drop и API для перестановки
-      updateFullText()
+      syncToEditor(fromId, session.paragraphs.find(p => p.id === fromId)?.text || '')
     }
-  }, [session, updateFullText])
+  }, [session, syncToEditor])
 
   // Функция для получения цвета карточки на основе метрик
   const getCardColor = useCallback((paragraph: any) => {
@@ -574,33 +651,42 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
 
   // Удаление карточки
   const deleteCard = useCallback(async (cardId: number) => {
-    if (session) {
-      console.log('Удаление карточки', cardId)
-      
-      try {
-        // Используем API для удаления
-        const updatedSession = await deleteParagraph(
-          session.metadata.session_id,
-          cardId
-        )
-        
-        // Обновляем сессию в store
-        setSession(updatedSession)
-        
-        // Обновляем полный текст в редакторе
-        const fullText = updatedSession.paragraphs
-          .sort((a: any, b: any) => a.id - b.id)
-          .map((p: any) => p.text)
-          .join('\n\n')
-        setEditorFullText(fullText)
-        
-        console.log('✅ Карточка успешно удалена')
-      } catch (error) {
-        console.error('❌ Ошибка при удалении карточки:', error)
-        // TODO: Показать уведомление об ошибке
-      }
+    console.log('🗑️ deleteCard вызвана для карточки:', cardId)
+    
+    if (!session) {
+      console.error('❌ Нет активной сессии для удаления карточки')
+      return
     }
-  }, [session, setSession, setEditorFullText])
+    
+    console.log('🔄 Удаление карточки', cardId, 'из сессии:', session.metadata.session_id)
+    
+    try {
+      // Используем API для удаления
+      console.log('📡 Вызов API deleteParagraph...')
+      const updatedSession = await deleteParagraph(
+        session.metadata.session_id,
+        cardId
+      )
+      
+      console.log('📡 API deleteParagraph ответил:', updatedSession)
+      
+      // Обновляем сессию в store
+      setSession(updatedSession)
+      
+      // Обновляем полный текст в редакторе и состояние редактирования
+      const fullText = updatedSession.paragraphs
+        .sort((a: any, b: any) => a.id - b.id)
+        .map((p: any) => p.text)
+        .join('\n\n')
+      setEditorFullText(fullText)
+      updateEditingText(fullText)
+      
+      console.log('✅ Карточка успешно удалена, осталось карточек:', updatedSession.paragraphs.length)
+    } catch (error) {
+      console.error('❌ Ошибка при удалении карточки:', error)
+      alert(`Ошибка при удалении карточки: ${error}`)
+    }
+  }, [session, setSession, setEditorFullText, updateEditingText])
 
   if (!session) {
     return (
@@ -749,8 +835,8 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
                   editingText={editingText}
                   setEditingText={setEditingText}
                   startEditingCard={startEditingCard}
-                  saveCardEdit={saveCardEdit}
-                  cancelCardEdit={cancelCardEdit}
+                  finishCardEditing={finishCardEditing}
+                  debouncedSyncToEditor={syncToEditor}
                   mergeWithNext={mergeWithNext}
                   deleteParagraph={deleteCard}
                   setSelectedParagraph={setSelectedParagraph}
@@ -768,4 +854,4 @@ export const CardDeckPanel: React.FC<CardDeckPanelProps> = ({
       </div>
     </Panel>
   )
-} 
+}

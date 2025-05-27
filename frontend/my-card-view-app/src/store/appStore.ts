@@ -312,7 +312,6 @@ export const useAppStore = create<AppState>()(
           
           console.log('📝 Обновление текста:', {
             mode: state.editingState.mode,
-            paragraphsCount: positions.length,
             timestamp: new Date().toLocaleTimeString()
           });
 
@@ -321,39 +320,46 @@ export const useAppStore = create<AppState>()(
             return;
           }
 
-          // Если есть активная сессия, обновляем текст в карточках
-          if (state.session) {
-            const newParagraphs = text.split('\n\n').map((paragraphText, index) => ({
-              ...state.session!.paragraphs[index] || {},
-              id: index,
-              text: paragraphText.trim(),
-              // Сохраняем существующие метрики
-              metrics: state.session!.paragraphs[index]?.metrics || {
-                signal_strength: 0,
-                complexity: 0
-              }
-            }));
+          // Обновляем состояние редактирования и editorFullText
+          set({
+            editorFullText: text,
+            editingState: {
+              ...state.editingState,
+              text,
+              lastChangeTimestamp: Date.now(),
+              positions
+            }
+          });
 
-            // Обновляем сессию с новыми параграфами
+          // Если редактируем в текстовом редакторе и есть сессия, обновляем карточки для отображения
+          if (state.editingState.mode === 'text-editor' && state.session) {
+            console.log('🔄 Немедленная синхронизация карточек для отображения');
+            
+            // Разбиваем текст на абзацы
+            const paragraphs = text.split('\n\n').filter(p => p.trim());
+            
+            // Простая стратегия: обновляем только существующие абзацы, не создаем новые
+            // Новые абзацы будут созданы только через debounced API анализ
+            const updatedParagraphs = state.session.paragraphs.map((existingParagraph, index) => {
+              if (index < paragraphs.length) {
+                // Обновляем текст существующего абзаца
+                return {
+                  ...existingParagraph,
+                  text: paragraphs[index].trim()
+                };
+              }
+              // Если абзацев стало меньше, оставляем существующий абзац как есть
+              // (он будет удален через API анализ)
+              return existingParagraph;
+            });
+
+            // Обновляем сессию с обновленными абзацами (только для отображения)
             set({
               session: {
                 ...state.session,
-                paragraphs: newParagraphs
-              },
-              // Всегда обновляем оба состояния текста
-              editorFullText: text,
-              editingState: {
-                ...state.editingState,
-                text,
-                lastChangeTimestamp: Date.now(),
-                positions
+                paragraphs: updatedParagraphs
               }
             });
-
-            // Запускаем отложенный анализ только если редактирование происходит в текстовом редакторе
-            if (state.editingState.mode === 'text-editor') {
-              debouncedAnalyze(text);
-            }
           }
         },
 
