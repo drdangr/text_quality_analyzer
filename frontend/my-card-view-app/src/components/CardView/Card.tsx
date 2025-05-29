@@ -14,6 +14,7 @@ interface CardProps {
   complexityMinColor: string;
   complexityMaxColor: string;
   onDeleteRequest: (paragraphId: number) => void;
+  onMergeRequest?: (paragraphId: number) => void;
   getCardColor: (paragraph: ParagraphData) => string;
   getHeaderTextColor: (paragraph: ParagraphData) => string;
   getEditingControlsTextColor: (paragraph: ParagraphData) => string;
@@ -40,6 +41,7 @@ const Card: React.FC<CardProps> = ({
   complexityMinColor,
   complexityMaxColor,
   onDeleteRequest,
+  onMergeRequest,
   getCardColor,
   getHeaderTextColor,
   getEditingControlsTextColor
@@ -401,6 +403,53 @@ const Card: React.FC<CardProps> = ({
           )}
         </div>
       </div>
+      
+      {/* Кнопка слияния - показываем только если не в режиме редактирования и есть onMergeRequest */}
+      {!isEditing && onMergeRequest && (
+        <div style={{
+          position: 'absolute',
+          bottom: '-12px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10
+        }}>
+          <button
+            style={{
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              backgroundColor: '#4ade80',
+              border: '2px solid #ffffff',
+              color: 'white',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s ease',
+              padding: '0',
+              lineHeight: '1'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMergeRequest(paragraph.id);
+            }}
+            title="Объединить с следующим абзацем"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#22c55e';
+              e.currentTarget.style.transform = 'scale(1.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#4ade80';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+          >
+            +
+          </button>
+        </div>
+      )}
     </div>
   );
 };

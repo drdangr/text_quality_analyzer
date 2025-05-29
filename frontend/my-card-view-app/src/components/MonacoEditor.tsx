@@ -14,7 +14,7 @@ interface MonacoEditorProps {
   options?: editor.IStandaloneEditorConstructionOptions;
 }
 
-export const MonacoEditor: React.FC<MonacoEditorProps> = ({
+const MonacoEditor: React.FC<MonacoEditorProps> = ({
   value,
   onChange,
   height = '200px',
@@ -22,8 +22,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   options = {}
 }) => {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const isUpdatingFromProps = useRef(false);
-  const lastValue = useRef(value);
 
   // Дефолтные настройки для нашего случая
   const defaultOptions: editor.IStandaloneEditorConstructionOptions = {
@@ -33,12 +31,18 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     lineNumbers: 'off',
     wordWrap: 'on',
     automaticLayout: true,
+    // Отключаем автодополнение и подсказки
     suggestOnTriggerCharacters: false,
     acceptSuggestionOnEnter: 'off',
     tabCompletion: 'off',
     wordBasedSuggestions: 'off',
     quickSuggestions: false,
-    parameterHints: { enabled: false }
+    parameterHints: { enabled: false },
+    // Настройки скролла
+    scrollbar: {
+      horizontal: 'hidden',
+      vertical: 'auto'
+    }
   };
 
   // Объединяем настройки: дефолтные сначала, пользовательские перезаписывают
@@ -47,80 +51,47 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     ...options
   };
 
-  console.log('🎨 Monaco Editor настройки:', {
-    fontSize: finalOptions.fontSize,
-    lineHeight: finalOptions.lineHeight
-  });
+  // Простой обработчик изменений без детального отслеживания
+  const handleChange = (newValue: string | undefined) => {
+    if (onChange && newValue !== undefined) {
+      try {
+        onChange(newValue);
+      } catch (error) {
+        console.warn('Ошибка при обработке изменения в Monaco Editor:', error);
+      }
+    }
+  };
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
-    
-    console.log('🎯 Monaco Editor инициализирован');
-
-    // Подписываемся на события изменений с детальной информацией
-    editor.onDidChangeModelContent((e: editor.IModelContentChangedEvent) => {
-      // Пропускаем события если мы сами обновляем редактор из props
-      if (isUpdatingFromProps.current) {
-        return;
-      }
-
-      const currentValue = editor.getValue();
-
-      // Обрабатываем каждое изменение
-      e.changes.forEach((change: editor.IModelContentChange, index: number) => {
-        const changeInfo: ChangeInfo = {
-          start: change.rangeOffset,
-          end: change.rangeOffset + change.rangeLength,
-          newText: change.text,
-          oldText: lastValue.current.slice(
-            change.rangeOffset, 
-            change.rangeOffset + change.rangeLength
-          )
-        };
-
-        // Передаем изменение в onChange
-        if (onChange) {
-          onChange(currentValue, changeInfo);
-        }
-      });
-
-      // Обновляем последнее известное значение
-      lastValue.current = currentValue;
-    });
   };
 
-  // Обновляем редактор при изменении value из props
-  useEffect(() => {
-    if (editorRef.current && value !== lastValue.current) {
-      isUpdatingFromProps.current = true;
-      editorRef.current.setValue(value);
-      lastValue.current = value;
-      isUpdatingFromProps.current = false;
-    }
-  }, [value]);
-
   return (
-    <div className="border rounded">
+    <div style={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       <style>
         {`
-          .monaco-editor .view-lines .view-line {
-            line-height: 13px !important;
-          }
-          .monaco-editor .margin {
-            display: none !important;
-          }
-          .monaco-editor .view-zones {
-            display: none !important;
+          .monaco-editor .editor-scrollable {
+            overflow-x: hidden !important;
           }
         `}
       </style>
-      <Editor
-        height={height}
-        language={language}
-        value={value}
-        options={finalOptions}
-        onMount={handleEditorDidMount}
-      />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <Editor
+          height="100%"
+          language={language}
+          value={value}
+          options={finalOptions}
+          onChange={handleChange}
+          onMount={handleEditorDidMount}
+        />
+      </div>
     </div>
   );
-}; 
+};
+
+export default MonacoEditor;
+export { MonacoEditor }; 

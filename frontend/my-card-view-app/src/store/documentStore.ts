@@ -20,7 +20,10 @@ import {
   markChunkAsUpdating,
   getStaleChunks,
   validateChunkPositions,
-  moveChunk
+  moveChunk,
+  mergeAdjacentChunks,
+  reorderChunksInDocument as reorderChunksInDocumentUtil,
+  mergeTwoChunks
 } from '../utils/chunkUtils';
 
 // UI состояние
@@ -73,6 +76,10 @@ interface AppState {
   
   // Перемещение чанков
   moveChunk: (sourceChunkId: string, targetPosition: number) => void;
+  
+  // Слияние и перестановка чанков
+  mergeChunks: (sourceChunkId: string, targetChunkId?: string) => void;
+  reorderChunks: (oldIndex: number, newIndex: number) => void;
   
   // UI действия
   setSelectedChunk: (chunkId: string | null) => void;
@@ -413,14 +420,14 @@ export const useDocumentStore = create<AppState>()(
                   console.log(`✅ Метрики чанка ${chunkId} обновлены:`, metrics);
                 }
               } catch (error) {
-                console.error(`❌ Ошибка анализа метрик чанка ${chunkId}:`, error);
+                // console.error(`❌ Ошибка анализа метрик чанка ${chunkId}:`, error);
                 // Снимаем флаг обновления при ошибке
                 get().updateChunkMetrics(chunkId, { isUpdating: false });
               }
             }
           }
         } catch (error) {
-          console.error('❌ Критическая ошибка при анализе метрик:', error);
+          // console.error('❌ Критическая ошибка при анализе метрик:', error);
           // Снимаем флаги обновления для всех чанков
           allUpdateIds.forEach(chunkId => {
             get().updateChunkMetrics(chunkId, { isUpdating: false });
@@ -453,6 +460,99 @@ export const useDocumentStore = create<AppState>()(
         } catch (error) {
           console.error('❌ Ошибка при перемещении чанка:', error);
           set({ error: error instanceof Error ? error.message : 'Ошибка перемещения' });
+        }
+      },
+
+      // === СЛИЯНИЕ И ПЕРЕСТАНОВКА ЧАНКОВ ===
+      mergeChunks: (sourceChunkId: string, targetChunkId?: string) => {
+        const state = get();
+        if (!state.document) return;
+
+        console.log('🔗 Слияние чанков в documentStore:', { sourceChunkId: sourceChunkId.slice(0, 8), targetChunkId: targetChunkId?.slice(0, 8) });
+
+        try {
+          if (targetChunkId) {
+            // Если указан целевой чанк, используем новую функцию для слияния любых двух чанков
+            const updatedDocument = mergeTwoChunks(state.document, sourceChunkId, targetChunkId);
+            set({ document: updatedDocument });
+          } else {
+            // Используем упрощенную функцию слияния соседних чанков
+            const updatedDocument = mergeAdjacentChunks(state.document, sourceChunkId);
+            set({ document: updatedDocument });
+          }
+
+          // Запускаем обновление метрик для всех чанков после слияния
+          const currentDocument = get().document;
+          if (currentDocument) {
+            currentDocument.chunks.forEach(chunk => {
+              get().queueMetricsUpdate(chunk.id, 'local');
+            });
+          }
+
+          console.log('✅ Чанки объединены успешно');
+        } catch (error) {
+          console.error('❌ Ошибка при объединении чанков:', error);
+          set({ error: error instanceof Error ? error.message : 'Ошибка объединения' });
+        }
+      },
+      
+      reorderChunks: (oldIndex: number, newIndex: number) => {
+        const state = get();
+        if (!state.document) {
+          console.warn('⚠️ Нет документа для перестановки чанков');
+          return;
+        }
+
+        console.log('🔄 Изменение порядка чанков:', { oldIndex, newIndex });
+
+        // Добавляем дополнительные проверки безопасности
+        if (oldIndex < 0 || newIndex < 0 || 
+            oldIndex >= state.document.chunks.length || 
+            newIndex >= state.document.chunks.length ||
+            oldIndex === newIndex) {
+          console.warn('⚠️ Некорректные индексы для перестановки:', { 
+            oldIndex, 
+            newIndex, 
+            chunksLength: state.document.chunks.length 
+          });
+          return;
+        }
+
+        try {
+          // Используем функцию, которая реально изменяет текст документа
+          const updatedDocument = reorderChunksInDocumentUtil(
+            state.document,
+            oldIndex,
+            newIndex
+          );
+
+          // Проверяем, что обновленный документ корректен
+          if (!updatedDocument || !updatedDocument.text || !updatedDocument.chunks || updatedDocument.chunks.length === 0) {
+            console.error('❌ Получен некорректный документ после перестановки');
+            set({ error: 'Ошибка при перестановке чанков - некорректный результат' });
+            return;
+          }
+
+          set({ document: updatedDocument, error: null });
+
+          // Запускаем обновление метрик для всех чанков (контекст изменился)
+          setTimeout(() => {
+            const currentState = get();
+            if (currentState.document && currentState.document.chunks) {
+              currentState.document.chunks.forEach(chunk => {
+                get().queueMetricsUpdate(chunk.id, 'local');
+              });
+            }
+          }, 100); // Небольшая задержка для стабильности
+
+          console.log('✅ Порядок чанков изменен успешно');
+        } catch (error) {
+          console.error('❌ Ошибка при изменении порядка чанков:', error);
+          set({ 
+            error: error instanceof Error 
+              ? `Ошибка перестановки: ${error.message}` 
+              : 'Неизвестная ошибка при перестановке чанков' 
+          });
         }
       },
 

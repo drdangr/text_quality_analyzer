@@ -2,10 +2,87 @@
 
 import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { Panel } from '../Panel'
-import { MonacoEditor } from '../../MonacoEditor'
+import MonacoEditor from '../../MonacoEditor'
 import { useDocumentStore } from '../../../store/documentStore'
 import { useClipboard } from '../../../hooks/usePanelSync'
 import type { ChangeInfo } from '../../../types/chunks'
+
+// Компонент общих метрик документа
+const DocumentMetrics: React.FC<{
+  document: any
+  isVisible: boolean
+}> = ({ document, isVisible }) => {
+  if (!isVisible || !document?.chunks) return null
+
+  // Вычисляем средние значения метрик
+  const chunks = document.chunks
+  const validSignalChunks = chunks.filter((c: any) => c.metrics.signal_strength !== undefined && c.metrics.signal_strength !== null)
+  const validComplexityChunks = chunks.filter((c: any) => c.metrics.complexity !== undefined && c.metrics.complexity !== null)
+  
+  const avgSignal = validSignalChunks.length > 0 
+    ? validSignalChunks.reduce((sum: number, c: any) => sum + c.metrics.signal_strength, 0) / validSignalChunks.length
+    : 0
+
+  const avgComplexity = validComplexityChunks.length > 0
+    ? validComplexityChunks.reduce((sum: number, c: any) => sum + c.metrics.complexity, 0) / validComplexityChunks.length
+    : 0
+
+  // Примерное время чтения (средняя скорость чтения 200 слов в минуту)
+  const wordCount = document.text.split(/\s+/).filter((word: string) => word.length > 0).length
+  const readingTimeMinutes = Math.ceil(wordCount / 200)
+
+  return (
+    <div style={{
+      padding: '12px 16px',
+      backgroundColor: '#f8fafc',
+      borderBottom: '1px solid #e2e8f0',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      fontSize: '14px',
+      color: '#475569'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontWeight: '600' }}>📊 Общие метрики:</span>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>🎯 Сигнал/шум:</span>
+          <span style={{ 
+            fontWeight: '600',
+            color: avgSignal > 0.7 ? '#059669' : avgSignal > 0.5 ? '#d97706' : '#dc2626'
+          }}>
+            {avgSignal.toFixed(2)}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>🧠 Сложность:</span>
+          <span style={{ 
+            fontWeight: '600',
+            color: avgComplexity < 0.3 ? '#059669' : avgComplexity < 0.7 ? '#d97706' : '#dc2626'
+          }}>
+            {avgComplexity.toFixed(2)}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>⏱️ Время чтения:</span>
+          <span style={{ fontWeight: '600', color: '#1e40af' }}>
+            ~{readingTimeMinutes} мин
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '12px', color: '#64748b' }}>
+        <span>📝 {wordCount} слов</span>
+        <span>🧩 {chunks.length} чанков</span>
+        <span>📄 {document.text.length} символов</span>
+      </div>
+    </div>
+  )
+}
 
 interface TextEditorPanelV2Props {
   icon?: string
@@ -40,7 +117,7 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
   const currentText = document?.text || editorText
   const chunksCount = document?.chunks.length || 0
 
-  const handleTextChange = (newText: string, changeInfo?: ChangeInfo) => {
+  const handleTextChange = (newText: string) => {
     // Получаем актуальное состояние store напрямую
     const storeState = useDocumentStore.getState()
     const actualDocument = storeState.document
@@ -60,7 +137,7 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
       // Есть документ - обновляем если есть текст (тема уже не важна)
       if (newText.trim()) {
         console.log('🔄 Обновление существующего документа через updateText')
-        updateText(newText, changeInfo)
+        updateText(newText) // Убираем changeInfo
       } else {
         console.log('⏭️ Пропускаем обновление: пустой текст')
       }
@@ -282,11 +359,23 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
           cursor: 'pointer',
           transition: 'background-color 0.2s'
         }}
-        onMouseOver={(e) => {
-          if (!showEditorSettings) e.currentTarget.style.backgroundColor = '#f5f5f5'
+        onMouseEnter={(e) => {
+          try {
+            if (!showEditorSettings && e.currentTarget) {
+              e.currentTarget.style.backgroundColor = '#f5f5f5'
+            }
+          } catch (error) {
+            // Игнорируем ошибки при изменении стилей
+          }
         }}
-        onMouseOut={(e) => {
-          if (!showEditorSettings) e.currentTarget.style.backgroundColor = 'transparent'
+        onMouseLeave={(e) => {
+          try {
+            if (!showEditorSettings && e.currentTarget) {
+              e.currentTarget.style.backgroundColor = 'transparent'
+            }
+          } catch (error) {
+            // Игнорируем ошибки при изменении стилей
+          }
         }}
         title="Настройки"
       >
@@ -312,6 +401,12 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
         flexDirection: 'column', 
         padding: '16px'
       }}>
+        {/* Общие метрики документа */}
+        <DocumentMetrics 
+          document={document}
+          isVisible={!!document && document.chunks.length > 0}
+        />
+
         <div style={{ 
           flexShrink: 0,
           marginBottom: '16px',
@@ -388,31 +483,6 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
             <MonacoEditor
               value={currentText}
               onChange={handleTextChange}
-              height="400px"
-              options={{
-                fontSize: 14,
-                lineHeight: 20,
-                padding: { top: 8, bottom: 8 },
-                wordWrap: 'off',
-                lineNumbers: 'on',
-                scrollbar: {
-                  vertical: 'auto',
-                  horizontal: 'auto'
-                },
-                overviewRulerLanes: 0,
-                hideCursorInOverviewRuler: true,
-                scrollBeyondLastLine: false,
-                renderLineHighlight: 'gutter',
-                glyphMargin: false,
-                folding: false,
-                lineDecorationsWidth: 0,
-                lineNumbersMinChars: 3,
-                automaticLayout: true,
-                insertSpaces: false,
-                detectIndentation: false,
-                tabSize: 4,
-                showFoldingControls: 'never'
-              }}
             />
           </div>
           

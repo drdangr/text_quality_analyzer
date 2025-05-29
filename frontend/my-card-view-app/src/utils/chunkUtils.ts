@@ -541,4 +541,239 @@ export function findChunkAtPosition(
   return chunks.find(chunk => 
     position >= chunk.start && position <= chunk.end
   ) || null;
+}
+
+/**
+ * Объединяет два соседних чанка в один (упрощенная версия)
+ */
+export function mergeAdjacentChunks(
+  document: DocumentState,
+  sourceChunkId: string
+): DocumentState {
+  const sourceIndex = document.chunks.findIndex(c => c.id === sourceChunkId);
+  
+  if (sourceIndex === -1 || sourceIndex >= document.chunks.length - 1) {
+    throw new Error('Невозможно найти чанк для слияния или это последний чанк');
+  }
+
+  // Получаем соседние чанки
+  const currentChunk = document.chunks[sourceIndex];
+  const nextChunk = document.chunks[sourceIndex + 1];
+
+  console.log('🔗 Простое слияние чанков:', {
+    current: currentChunk.id.slice(0, 8),
+    next: nextChunk.id.slice(0, 8),
+    currentRange: `${currentChunk.start}-${currentChunk.end}`,
+    nextRange: `${nextChunk.start}-${nextChunk.end}`
+  });
+
+  // Получаем тексты чанков
+  const currentText = document.text.slice(currentChunk.start, currentChunk.end);
+  const nextText = document.text.slice(nextChunk.start, nextChunk.end);
+
+  // Получаем текст между чанками (обычно разделитель \n\n)
+  const betweenText = document.text.slice(currentChunk.end, nextChunk.start);
+  
+  console.log('📝 Тексты для слияния:', {
+    currentText: currentText.slice(0, 50) + '...',
+    betweenText: JSON.stringify(betweenText),
+    nextText: nextText.slice(0, 50) + '...'
+  });
+
+  // Создаем объединенный текст (убираем разделитель между чанками)
+  const mergedText = currentText + ' ' + nextText; // Заменяем разделитель одним пробелом
+
+  // Создаем новый текст документа
+  const beforeMerged = document.text.slice(0, currentChunk.start);
+  const afterMerged = document.text.slice(nextChunk.end);
+  const newDocumentText = beforeMerged + mergedText + afterMerged;
+
+  console.log('📄 Результат слияния:', {
+    oldLength: document.text.length,
+    newLength: newDocumentText.length,
+    preview: newDocumentText.slice(0, 100) + '...'
+  });
+
+  // Пересчитываем все чанки
+  const newChunks = recalculateAllChunks(newDocumentText);
+
+  if (newChunks.length === 0) {
+    throw new Error('Не удалось создать чанки после слияния');
+  }
+
+  return {
+    ...document,
+    text: newDocumentText,
+    chunks: newChunks,
+    version: document.version + 1,
+    metadata: {
+      ...document.metadata,
+      last_modified: new Date().toISOString()
+    }
+  };
+}
+
+/**
+ * Переставляет чанки в документе, изменяя реальный текст
+ */
+export function reorderChunksInDocument(
+  document: DocumentState,
+  oldIndex: number,
+  newIndex: number
+): DocumentState {
+  if (oldIndex === newIndex || oldIndex < 0 || newIndex < 0 || 
+      oldIndex >= document.chunks.length || newIndex >= document.chunks.length) {
+    return document;
+  }
+
+  console.log('🔄 Перестановка чанков в документе:', { oldIndex, newIndex });
+
+  try {
+    // Сортируем чанки по позиции для гарантии правильного порядка
+    const sortedChunks = [...document.chunks].sort((a, b) => a.start - b.start);
+
+    // Проверяем корректность индексов
+    if (oldIndex >= sortedChunks.length || newIndex >= sortedChunks.length) {
+      console.error('❌ Некорректные индексы для перестановки');
+      return document;
+    }
+
+    // Получаем тексты всех чанков в правильном порядке
+    const chunkTexts = sortedChunks.map(chunk => {
+      const text = document.text.slice(chunk.start, chunk.end);
+      console.log(`📝 Чанк ${sortedChunks.indexOf(chunk)}: "${text.slice(0, 30)}..."`);
+      return text.trim(); // Убираем лишние пробелы
+    });
+
+    // Проверяем, что все тексты получены корректно
+    if (chunkTexts.some(text => text === '')) {
+      console.warn('⚠️ Обнаружены пустые чанки');
+    }
+
+    // Переставляем тексты
+    const [movedText] = chunkTexts.splice(oldIndex, 1);
+    chunkTexts.splice(newIndex, 0, movedText);
+
+    console.log('🔄 Перестановка текстов:', {
+      movedText: movedText.slice(0, 30) + '...',
+      from: oldIndex,
+      to: newIndex
+    });
+
+    // Создаем новый текст, объединяя чанки разделителями
+    const SEPARATOR = '\n\n'; // Используем двойной перенос как разделитель
+    const newText = chunkTexts.filter(text => text.length > 0).join(SEPARATOR);
+
+    // Проверяем, что новый текст не пустой
+    if (!newText.trim()) {
+      console.error('❌ Получен пустой текст после перестановки');
+      return document;
+    }
+
+    console.log('📝 Новый текст после перестановки:', {
+      oldLength: document.text.length,
+      newLength: newText.length,
+      preview: newText.slice(0, 100) + '...'
+    });
+
+    // Пересчитываем чанки для нового текста
+    const newChunks = recalculateAllChunks(newText);
+
+    // Проверяем, что чанки созданы корректно
+    if (newChunks.length === 0) {
+      console.error('❌ Не удалось создать чанки для нового текста');
+      return document;
+    }
+
+    console.log('✅ Успешно создано чанков:', newChunks.length);
+
+    return {
+      ...document,
+      text: newText,
+      chunks: newChunks,
+      version: document.version + 1,
+      metadata: {
+        ...document.metadata,
+        last_modified: new Date().toISOString()
+      }
+    };
+  } catch (error) {
+    console.error('❌ Ошибка при перестановке чанков:', error);
+    return document; // Возвращаем исходный документ при ошибке
+  }
+}
+
+/**
+ * Объединяет два конкретных чанка по их ID (не обязательно соседние)
+ */
+export function mergeTwoChunks(
+  document: DocumentState,
+  sourceChunkId: string,
+  targetChunkId: string
+): DocumentState {
+  const sourceChunk = document.chunks.find(c => c.id === sourceChunkId);
+  const targetChunk = document.chunks.find(c => c.id === targetChunkId);
+  
+  if (!sourceChunk || !targetChunk) {
+    throw new Error('Один из чанков не найден');
+  }
+
+  // Определяем, какой чанк первый, а какой второй по позиции в тексте
+  const firstChunk = sourceChunk.start < targetChunk.start ? sourceChunk : targetChunk;
+  const secondChunk = sourceChunk.start < targetChunk.start ? targetChunk : sourceChunk;
+
+  console.log('🔗 Слияние произвольных чанков:', {
+    source: { id: sourceChunk.id.slice(0, 8), range: `${sourceChunk.start}-${sourceChunk.end}` },
+    target: { id: targetChunk.id.slice(0, 8), range: `${targetChunk.start}-${targetChunk.end}` },
+    first: { id: firstChunk.id.slice(0, 8), range: `${firstChunk.start}-${firstChunk.end}` },
+    second: { id: secondChunk.id.slice(0, 8), range: `${secondChunk.start}-${secondChunk.end}` }
+  });
+
+  // Получаем тексты чанков
+  const firstChunkText = document.text.slice(firstChunk.start, firstChunk.end);
+  const secondChunkText = document.text.slice(secondChunk.start, secondChunk.end);
+
+  // Получаем промежуточный текст между чанками
+  const intermediateText = document.text.slice(firstChunk.end, secondChunk.start);
+  
+  console.log('📝 Тексты для слияния:', {
+    firstText: firstChunkText.slice(0, 50) + '...',
+    intermediateText: JSON.stringify(intermediateText),
+    secondText: secondChunkText.slice(0, 50) + '...'
+  });
+
+  // Создаем объединенный текст
+  // Если есть промежуточный текст, включаем его, иначе добавляем пробел
+  const mergedText = intermediateText.trim() 
+    ? firstChunkText + intermediateText + secondChunkText
+    : firstChunkText + ' ' + secondChunkText;
+
+  // Создаем новый текст документа
+  const beforeFirst = document.text.slice(0, firstChunk.start);
+  const afterSecond = document.text.slice(secondChunk.end);
+  const newDocumentText = beforeFirst + mergedText + afterSecond;
+
+  console.log('📄 Результат слияния произвольных чанков:', {
+    oldLength: document.text.length,
+    newLength: newDocumentText.length,
+    preview: newDocumentText.slice(0, 100) + '...'
+  });
+
+  // Пересчитываем все чанки
+  const newChunks = recalculateAllChunks(newDocumentText);
+
+  if (newChunks.length === 0) {
+    throw new Error('Не удалось создать чанки после слияния');
+  }
+
+  return {
+    ...document,
+    text: newDocumentText,
+    chunks: newChunks,
+    version: document.version + 1,
+    metadata: {
+      ...document.metadata,
+      last_modified: new Date().toISOString()
+    }
+  };
 } 

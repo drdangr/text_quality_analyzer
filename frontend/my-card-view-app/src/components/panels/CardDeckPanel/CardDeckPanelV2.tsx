@@ -3,6 +3,20 @@
 import React, { useState, useMemo } from 'react'
 import { Panel } from '../Panel'
 import { useDocumentStore } from '../../../store/documentStore'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface CardDeckPanelV2Props {
   icon?: string
@@ -10,7 +24,47 @@ interface CardDeckPanelV2Props {
   onToggleExpanded?: () => void
 }
 
-// Простой компонент карточки чанка
+// Компонент перетаскиваемой карточки чанка
+const SortableChunkCard: React.FC<{
+  chunk: any
+  chunkText: string
+  index: number
+  onSelect: (chunkId: string) => void
+  selectedChunkId: string | null
+  getCardColor: (chunk: any) => string
+  getTextColor: (chunk: any) => string
+  onMergeRequest: (chunkId: string) => void
+  onDeleteRequest: (chunkId: string) => void
+  fontSize: string
+  fontFamily: string
+}> = (props) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.chunk.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <ChunkCard 
+        {...props}
+        dragHandleProps={listeners}
+        isDragging={isDragging}
+      />
+    </div>
+  )
+}
+
+// Обновленный компонент карточки с поддержкой drag handle
 const ChunkCard: React.FC<{
   chunk: any
   chunkText: string
@@ -18,98 +72,267 @@ const ChunkCard: React.FC<{
   onSelect: (chunkId: string) => void
   selectedChunkId: string | null
   getCardColor: (chunk: any) => string
+  getTextColor: (chunk: any) => string
+  onMergeRequest: (chunkId: string) => void
+  onDeleteRequest: (chunkId: string) => void
+  fontSize: string
+  fontFamily: string
+  dragHandleProps?: any
+  isDragging?: boolean
 }> = ({ 
   chunk, 
   chunkText,
   index,
   onSelect,
   selectedChunkId,
-  getCardColor
+  getCardColor,
+  getTextColor,
+  onMergeRequest,
+  onDeleteRequest,
+  fontSize,
+  fontFamily,
+  dragHandleProps,
+  isDragging
 }) => {
   const isSelected = selectedChunkId === chunk.id
   
   return (
-    <div
-      style={{
-        border: isSelected ? '2px solid #7c3aed' : '1px solid #e5e7eb',
-        borderRadius: '8px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        transition: 'all 0.2s',
-        marginBottom: '12px',
-        cursor: 'pointer',
-        overflow: 'hidden'
-      }}
-      onClick={() => onSelect(chunk.id)}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)'}
-      onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)'}
-    >
-      {/* Шапка карточки */}
-      <div style={{
-        backgroundColor: '#f8f9fa',
-        padding: '8px 12px',
-        borderBottom: '1px solid #e5e7eb',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        fontSize: '12px',
-        color: '#495057'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontWeight: '600' }}>Чанк #{index + 1}</span>
-          <span>Сигнал: {chunk.metrics.signal_strength?.toFixed(2) || 'N/A'}</span>
-          <span>Сложность: {chunk.metrics.complexity?.toFixed(2) || 'N/A'}</span>
-        </div>
-        
-        {chunk.metrics.semantic_function && (
-          <span style={{ 
-            color: '#2563eb',
-            fontSize: '10px',
-            padding: '2px 6px',
-            backgroundColor: '#eff6ff',
-            borderRadius: '4px'
-          }}>
-            🏷️ {chunk.metrics.semantic_function}
-          </span>
-        )}
-      </div>
-      
-      {/* Содержимое карточки */}
-      <div style={{
-        backgroundColor: getCardColor(chunk),
-        padding: '12px',
-        minHeight: '60px'
-      }}>
+    <div style={{ position: 'relative', marginBottom: '12px' }}>
+      <div
+        style={{
+          border: isSelected ? '2px solid #7c3aed' : '1px solid #e5e7eb',
+          borderRadius: '8px',
+          boxShadow: isDragging ? '0 8px 16px rgba(0, 0, 0, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+          transition: isDragging ? 'none' : 'all 0.2s',
+          cursor: 'pointer',
+          overflow: 'hidden',
+          backgroundColor: 'white'
+        }}
+        onClick={() => onSelect(chunk.id)}
+        onMouseEnter={e => !isDragging && (e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)')}
+        onMouseLeave={e => !isDragging && (e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)')}
+      >
+        {/* Кнопка удаления */}
+        <button
+          style={{
+            position: 'absolute',
+            top: '4px',
+            right: '8px',
+            background: 'none',
+            border: 'none',
+            color: '#6b7280',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            padding: '2px 4px',
+            borderRadius: '2px',
+            lineHeight: '1',
+            opacity: 0.6,
+            transition: 'all 0.2s ease',
+            zIndex: 20
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteRequest(chunk.id);
+          }}
+          title="Удалить чанк"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '1';
+            e.currentTarget.style.backgroundColor = '#fef2f2';
+            e.currentTarget.style.color = '#dc2626';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = '0.6';
+            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.color = '#6b7280';
+          }}
+        >
+          ×
+        </button>
+
+        {/* Шапка карточки */}
         <div style={{
-          fontSize: '14px',
-          lineHeight: '1.4',
-          color: '#374151',
-          whiteSpace: 'pre-wrap',
-          maxHeight: '120px',
-          overflow: 'hidden'
-        }}>
-          {chunkText.length > 200 
-            ? chunkText.substring(0, 200) + '...'
-            : chunkText
-          }
-        </div>
-        
-        {/* Метаинформация */}
-        <div style={{
-          marginTop: '8px',
-          fontSize: '11px',
-          color: '#6b7280',
+          backgroundColor: '#f8f9fa',
+          padding: '8px 32px 8px 12px', // Увеличиваем правый отступ для кнопки удаления
+          borderBottom: '1px solid #e5e7eb',
           display: 'flex',
+          alignItems: 'center',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          fontSize: '12px',
+          color: '#495057',
+          fontFamily: fontFamily,
+          position: 'relative'
         }}>
-          <span>
-            Позиция: {chunk.start}-{chunk.end} ({chunk.end - chunk.start} симв.)
-          </span>
-          <span>
-            ID: {chunk.id.substring(0, 8)}...
-          </span>
+          {/* Drag handle */}
+          <div
+            {...dragHandleProps}
+            style={{
+              position: 'absolute',
+              left: '4px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              cursor: 'grab',
+              color: '#9ca3af',
+              fontSize: '14px',
+              padding: '2px',
+              userSelect: 'none'
+            }}
+            title="Перетащите для изменения порядка"
+          >
+            ⋮⋮
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingLeft: '20px' }}>
+            <span style={{ fontWeight: '600' }}>Чанк #{index + 1}</span>
+            <span>Сигнал: {chunk.metrics.signal_strength?.toFixed(2) || 'N/A'}</span>
+            <span>Сложность: {chunk.metrics.complexity?.toFixed(2) || 'N/A'}</span>
+          </div>
+          
+          {chunk.metrics.semantic_function && (
+            <span style={{ 
+              color: '#2563eb',
+              fontSize: '10px',
+              padding: '2px 6px',
+              backgroundColor: '#eff6ff',
+              borderRadius: '4px'
+            }}>
+              🏷️ {chunk.metrics.semantic_function}
+            </span>
+          )}
+        </div>
+        
+        {/* Содержимое карточки */}
+        <div style={{
+          backgroundColor: getCardColor(chunk),
+          padding: '12px',
+          minHeight: '60px'
+        }}>
+          <div style={{
+            fontSize: fontSize,
+            fontFamily: fontFamily,
+            lineHeight: '1.4',
+            color: getTextColor(chunk),
+            whiteSpace: 'pre-wrap'
+          }}>
+            {chunkText}
+          </div>
+          
+          {/* Метаинформация */}
+          <div style={{
+            marginTop: '8px',
+            fontSize: '11px',
+            color: '#6b7280',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontFamily: fontFamily
+          }}>
+            <span>
+              Позиция: {chunk.start}-{chunk.end} ({chunk.end - chunk.start} симв.)
+            </span>
+            <span>
+              ID: {chunk.id.substring(0, 8)}...
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* Кнопка слияния */}
+      {!isDragging && (
+        <div style={{
+          position: 'absolute',
+          bottom: '-12px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10
+        }}>
+          <button
+            style={{
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              backgroundColor: '#4ade80',
+              border: '2px solid #ffffff',
+              color: 'white',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s ease',
+              padding: '0',
+              lineHeight: '1'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMergeRequest(chunk.id);
+            }}
+            title="Объединить с следующим чанком"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#22c55e';
+              e.currentTarget.style.transform = 'scale(1.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#4ade80';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+          >
+            +
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Компонент Heat Map
+const HeatMapGrid: React.FC<{
+  chunks: any[]
+  getCardColor: (chunk: any) => string
+  getTextColor: (chunk: any) => string
+  onChunkClick: (chunkId: string) => void
+  selectedChunkId: string | null
+}> = ({ chunks, getCardColor, getTextColor, onChunkClick, selectedChunkId }) => {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
+      gap: '4px',
+      padding: '16px',
+      backgroundColor: '#f8f9fa',
+      borderRadius: '6px',
+      maxHeight: '200px',
+      overflowY: 'auto'
+    }}>
+      {chunks.map((chunk, index) => (
+        <div
+          key={chunk.id}
+          style={{
+            width: '40px',
+            height: '40px',
+            backgroundColor: getCardColor(chunk),
+            color: getTextColor(chunk),
+            border: selectedChunkId === chunk.id ? '2px solid #7c3aed' : '1px solid #e5e7eb',
+            borderRadius: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '10px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            textAlign: 'center'
+          }}
+          onClick={() => onChunkClick(chunk.id)}
+          title={`Чанк #${index + 1}\nСигнал: ${chunk.metrics.signal_strength?.toFixed(2) || 'N/A'}\nСложность: ${chunk.metrics.complexity?.toFixed(2) || 'N/A'}\nСемантика: ${chunk.metrics.semantic_function || 'N/A'}`}
+          onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          {index + 1}
+        </div>
+      ))}
     </div>
   )
 }
@@ -120,19 +343,74 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
   onToggleExpanded 
 }) => {
   const [showSettings, setShowSettings] = useState(false)
+  const [showHeatMap, setShowHeatMap] = useState(false)
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [sortField, setSortField] = useState<'position' | 'signal' | 'complexity'>('position')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [signalMinColor, setSignalMinColor] = useState('#FFFFFF')
   const [signalMaxColor, setSignalMaxColor] = useState('#FFDB58')
+  const [complexityMinColor, setComplexityMinColor] = useState('#008000')
+  const [complexityMaxColor, setComplexityMaxColor] = useState('#FF0000')
+  const [fontSize, setFontSize] = useState('14px')
+  const [fontFamily, setFontFamily] = useState('Arial, sans-serif')
 
   // Используем documentStore напрямую
   const { 
     document,
     loading,
     error,
-    getChunkText
+    getChunkText,
+    mergeChunks,
+    reorderChunks
   } = useDocumentStore()
+
+  // Настройка drag-and-drop сенсоров
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  )
+
+  // Обработчики drag-and-drop
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    
+    setActiveId(null) // Сначала очищаем activeId
+    
+    if (!over || active.id === over.id || !document) {
+      return
+    }
+
+    try {
+      const oldIndex = sortedChunks.findIndex(chunk => chunk.id === active.id)
+      const newIndex = sortedChunks.findIndex(chunk => chunk.id === over.id)
+      
+      console.log('🔄 Drag end:', { 
+        activeId: active.id, 
+        overId: over.id, 
+        oldIndex, 
+        newIndex,
+        chunksLength: sortedChunks.length 
+      })
+      
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        // Используем реальную функцию reorderChunks из documentStore
+        reorderChunks(oldIndex, newIndex)
+      } else {
+        console.warn('⚠️ Некорректные индексы для drag-and-drop:', { oldIndex, newIndex })
+      }
+    } catch (error) {
+      console.error('❌ Ошибка в handleDragEnd:', error)
+      // Не прерываем работу UI, просто логируем ошибку
+    }
+  }
 
   // Получаем отсортированные чанки
   const sortedChunks = useMemo(() => {
@@ -193,6 +471,108 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     return `rgb(${r}, ${g}, ${b})`
   }
 
+  // Функция для расчета цвета текста по сложности
+  const getTextColor = (chunk: any): string => {
+    const complexity = chunk.metrics.complexity
+    if (complexity === undefined || complexity === null) {
+      return '#374151' // Серый для неопределенных значений
+    }
+    
+    // Нормализация сложности (предполагаем диапазон 0-1)
+    const ratio = Math.max(0, Math.min(1, complexity))
+    
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 55, g: 65, b: 81 }
+    }
+    
+    const minRgb = hexToRgb(complexityMinColor)
+    const maxRgb = hexToRgb(complexityMaxColor)
+    
+    const r = Math.round(minRgb.r + (maxRgb.r - minRgb.r) * ratio)
+    const g = Math.round(minRgb.g + (maxRgb.g - minRgb.g) * ratio)
+    const b = Math.round(minRgb.b + (maxRgb.b - minRgb.b) * ratio)
+    
+    return `rgb(${r}, ${g}, ${b})`
+  }
+
+  // Функция слияния чанков
+  const handleMergeRequest = async (chunkId: string) => {
+    try {
+      // Находим текущий чанк в отсортированном списке
+      const currentIndex = sortedChunks.findIndex(c => c.id === chunkId)
+      console.log('🔗 Запрос на слияние чанка:', {
+        chunkId: chunkId.slice(0, 8),
+        currentIndex,
+        totalChunks: sortedChunks.length
+      })
+      
+      if (currentIndex >= 0 && currentIndex < sortedChunks.length - 1) {
+        const currentChunk = sortedChunks[currentIndex]
+        const nextChunk = sortedChunks[currentIndex + 1]
+        
+        console.log('🔗 Будем объединять чанки:', {
+          current: {
+            id: currentChunk.id.slice(0, 8),
+            position: `${currentChunk.start}-${currentChunk.end}`,
+            index: currentIndex
+          },
+          next: {
+            id: nextChunk.id.slice(0, 8),
+            position: `${nextChunk.start}-${nextChunk.end}`,
+            index: currentIndex + 1
+          }
+        })
+        
+        // Используем новую функцию с двумя параметрами
+        mergeChunks(currentChunk.id, nextChunk.id)
+      } else {
+        console.warn('⚠️ Нет следующего чанка для слияния или это последний чанк')
+      }
+    } catch (error) {
+      console.error('Ошибка при объединении чанков:', error)
+    }
+  }
+
+  // Функция удаления чанка
+  const handleDeleteRequest = async (chunkId: string) => {
+    try {
+      if (window.confirm('Вы уверены, что хотите удалить этот чанк?')) {
+        // Получаем чанк для удаления
+        const chunkToDelete = sortedChunks.find(c => c.id === chunkId)
+        if (!chunkToDelete || !document) return
+
+        // Создаем новый текст без удаляемого чанка
+        const beforeChunk = document.text.slice(0, chunkToDelete.start)
+        const afterChunk = document.text.slice(chunkToDelete.end)
+        const newText = beforeChunk + afterChunk
+
+        // Обновляем документ через updateText (который пересчитает чанки)
+        const { updateText } = useDocumentStore.getState()
+        updateText(newText)
+      }
+    } catch (error) {
+      console.error('Ошибка при удалении чанка:', error)
+    }
+  }
+
+  // Функция скролла к чанку (для Heat Map)
+  const scrollToChunk = (chunkId: string) => {
+    setSelectedChunkId(chunkId)
+    // Используем глобальный document через window
+    const element = window.document.getElementById(`chunk-${chunkId}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+
+  // Найти активный чанк для DragOverlay
+  const activeChunk = activeId ? sortedChunks.find(chunk => chunk.id === activeId) : null
+
   // Настройки панели
   const headerControls = showSettings ? (
     <div style={{ 
@@ -229,9 +609,9 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
         </button>
       </div>
       
-      {/* Цвета для сигнала */}
+      {/* Цвета для сигнала (фон карточек) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <label style={{ minWidth: '60px' }}>Цвета:</label>
+        <label style={{ minWidth: '60px' }}>Фон (сигнал):</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{ fontSize: '10px' }}>Мин</span>
           <input 
@@ -248,6 +628,58 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
             style={{ width: '24px', height: '20px', border: 'none' }}
           />
         </div>
+      </div>
+
+      {/* Цвета для сложности (текст) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <label style={{ minWidth: '60px' }}>Текст (сложность):</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '10px' }}>Мин</span>
+          <input 
+            type="color" 
+            value={complexityMinColor}
+            onChange={(e) => setComplexityMinColor(e.target.value)}
+            style={{ width: '24px', height: '20px', border: 'none' }}
+          />
+          <span style={{ fontSize: '10px' }}>Макс</span>
+          <input 
+            type="color" 
+            value={complexityMaxColor}
+            onChange={(e) => setComplexityMaxColor(e.target.value)}
+            style={{ width: '24px', height: '20px', border: 'none' }}
+          />
+        </div>
+      </div>
+
+      {/* Настройки шрифта */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <label style={{ minWidth: '60px' }}>Размер:</label>
+        <select
+          value={fontSize}
+          onChange={(e) => setFontSize(e.target.value)}
+          style={{ flex: 1, padding: '4px', fontSize: '12px' }}
+        >
+          <option value="12px">12px</option>
+          <option value="14px">14px</option>
+          <option value="16px">16px</option>
+          <option value="18px">18px</option>
+          <option value="20px">20px</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <label style={{ minWidth: '60px' }}>Шрифт:</label>
+        <select
+          value={fontFamily}
+          onChange={(e) => setFontFamily(e.target.value)}
+          style={{ flex: 1, padding: '4px', fontSize: '12px' }}
+        >
+          <option value="Arial, sans-serif">Arial</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="Times New Roman, serif">Times New Roman</option>
+          <option value="Courier New, monospace">Courier New</option>
+          <option value="Verdana, sans-serif">Verdana</option>
+        </select>
       </div>
     </div>
   ) : null
@@ -267,6 +699,22 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
       >
         V2
       </div>
+      <button
+        onClick={() => setShowHeatMap(!showHeatMap)}
+        style={{
+          padding: '4px',
+          backgroundColor: showHeatMap ? '#e0e7ff' : 'transparent',
+          color: showHeatMap ? '#4338ca' : '#666',
+          border: 'none',
+          borderRadius: '4px',
+          fontSize: '14px',
+          cursor: 'pointer',
+          transition: 'background-color 0.2s'
+        }}
+        title="Heat Map"
+      >
+        🗺️
+      </button>
       <button
         onClick={() => setShowSettings(!showSettings)}
         style={{
@@ -329,88 +777,146 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
       showSettings={showSettings}
       onToggleSettings={() => setShowSettings(!showSettings)}
     >
-      <div style={{ 
-        height: '100%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        padding: '16px' 
-      }}>
-        {loading && (
-          <div style={{ 
-            padding: '12px',
-            backgroundColor: '#eff6ff',
-            border: '1px solid #bfdbfe',
-            borderRadius: '6px',
-            color: '#1d4ed8',
-            fontSize: '14px',
-            marginBottom: '16px'
-          }}>
-            🔄 Анализ чанков...
-          </div>
-        )}
-        
-        {error && (
-          <div style={{ 
-            padding: '12px',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '6px',
-            color: '#dc2626',
-            fontSize: '14px',
-            marginBottom: '16px'
-          }}>
-            ❌ Ошибка: {error}
-          </div>
-        )}
-        
-        {/* Статистика */}
-        {document && (
-          <div style={{
-            padding: '8px 12px',
-            backgroundColor: '#f8fafc',
-            borderRadius: '6px',
-            fontSize: '12px',
-            color: '#64748b',
-            marginBottom: '16px',
-            display: 'flex',
-            justifyContent: 'space-between'
-          }}>
-            <span>📄 Документ: {document.text.length} символов</span>
-            <span>🧩 Чанков: {sortedChunks.length}</span>
-            <span>📊 Версия: {document.version}</span>
-          </div>
-        )}
-        
-        {/* Список карточек */}
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
         <div style={{ 
-          flex: 1, 
-          overflowY: 'auto',
-          paddingRight: '4px'
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          padding: '16px' 
         }}>
-          {sortedChunks.map((chunk, index) => (
-            <ChunkCard
-              key={chunk.id}
-              chunk={chunk}
-              chunkText={getChunkText(chunk.id)}
-              index={index}
-              onSelect={setSelectedChunkId}
-              selectedChunkId={selectedChunkId}
-              getCardColor={getCardColor}
-            />
-          ))}
-          
-          {sortedChunks.length === 0 && (
+          {loading && (
             <div style={{ 
-              textAlign: 'center', 
-              color: '#9ca3af',
-              marginTop: '60px'
+              padding: '12px',
+              backgroundColor: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: '6px',
+              color: '#1d4ed8',
+              fontSize: '14px',
+              marginBottom: '16px'
             }}>
-              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🃏</div>
-              <p>Чанки не найдены</p>
+              🔄 Анализ чанков...
             </div>
           )}
+          
+          {error && (
+            <div style={{ 
+              padding: '12px',
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              color: '#dc2626',
+              fontSize: '14px',
+              marginBottom: '16px'
+            }}>
+              ❌ Ошибка: {error}
+            </div>
+          )}
+
+          {/* Heat Map */}
+          {showHeatMap && sortedChunks.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ 
+                fontSize: '12px', 
+                fontWeight: '600', 
+                color: '#374151', 
+                marginBottom: '8px' 
+              }}>
+                📊 Heat Map чанков
+              </div>
+              <HeatMapGrid
+                chunks={sortedChunks}
+                getCardColor={getCardColor}
+                getTextColor={getTextColor}
+                onChunkClick={scrollToChunk}
+                selectedChunkId={selectedChunkId}
+              />
+            </div>
+          )}
+          
+          {/* Статистика */}
+          {document && (
+            <div style={{
+              padding: '8px 12px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: '#64748b',
+              marginBottom: '16px',
+              display: 'flex',
+              justifyContent: 'space-between'
+            }}>
+              <span>📄 Документ: {document.text.length} символов</span>
+              <span>🧩 Чанков: {sortedChunks.length}</span>
+              <span>📊 Версия: {document.version}</span>
+            </div>
+          )}
+          
+          {/* Список карточек с поддержкой сортировки */}
+          <SortableContext 
+            items={sortedChunks.map(chunk => chunk.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div style={{ 
+              flex: 1, 
+              overflowY: 'auto',
+              paddingRight: '4px'
+            }}>
+              {sortedChunks.map((chunk, index) => (
+                <div key={chunk.id} id={`chunk-${chunk.id}`}>
+                  <SortableChunkCard
+                    chunk={chunk}
+                    chunkText={getChunkText(chunk.id)}
+                    index={index}
+                    onSelect={setSelectedChunkId}
+                    selectedChunkId={selectedChunkId}
+                    getCardColor={getCardColor}
+                    getTextColor={getTextColor}
+                    onMergeRequest={handleMergeRequest}
+                    onDeleteRequest={handleDeleteRequest}
+                    fontSize={fontSize}
+                    fontFamily={fontFamily}
+                  />
+                </div>
+              ))}
+              
+              {sortedChunks.length === 0 && (
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: '#9ca3af',
+                  marginTop: '60px'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>🃏</div>
+                  <p>Чанки не найдены</p>
+                </div>
+              )}
+            </div>
+          </SortableContext>
         </div>
-      </div>
+
+        {/* DragOverlay для показа перетаскиваемого элемента */}
+        <DragOverlay>
+          {activeChunk ? (
+            <ChunkCard
+              chunk={activeChunk}
+              chunkText={getChunkText(activeChunk.id)}
+              index={sortedChunks.findIndex(c => c.id === activeChunk.id)}
+              onSelect={() => {}}
+              selectedChunkId={null}
+              getCardColor={getCardColor}
+              getTextColor={getTextColor}
+              onMergeRequest={() => {}}
+              onDeleteRequest={() => {}}
+              fontSize={fontSize}
+              fontFamily={fontFamily}
+              isDragging={true}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </Panel>
   )
 } 
