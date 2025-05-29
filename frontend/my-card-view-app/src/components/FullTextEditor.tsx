@@ -4,22 +4,19 @@ interface FullTextEditorProps {
   initialText?: string;
   initialTopic?: string;
   onSubmit: (text: string, topic: string) => void;
-  onDemoDataClick?: () => void;
   loading: boolean;
   error: string | null;
   isBackendReady?: boolean;
   backendError?: string | null;
 }
 
-const FullTextEditor: React.FC<FullTextEditorProps> = ({ 
+const FullTextEditor: React.FC<FullTextEditorProps> = ({
   initialText = '',
   initialTopic = '',
   onSubmit,
-  onDemoDataClick,
   loading,
   error,
-  isBackendReady = true,
-  backendError = null
+  isBackendReady = true
 }) => {
   const [text, setText] = useState<string>(initialText);
   const [topic, setTopic] = useState<string>(initialTopic);

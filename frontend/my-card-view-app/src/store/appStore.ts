@@ -2,34 +2,9 @@ import { create } from 'zustand'
 import { devtools, subscribeWithSelector } from 'zustand/middleware'
 import * as api from '../api'
 import type { AnalysisResponse, ParagraphData } from '../components/CardView/types'
-import { debounce } from 'lodash'
 
 export type SortField = 'id' | 'signal_strength' | 'complexity' | 'semantic_function'
 export type SortDirection = 'asc' | 'desc'
-
-// Интерфейс для позиций абзацев в тексте
-interface ParagraphPosition {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
-
-// Состояние редактирования
-interface EditingState {
-  mode: 'none' | 'text-editor' | 'card-editor';
-  paragraphId: number | null;
-  text: string;
-  lastChangeTimestamp: number | null;
-  positions: ParagraphPosition[];
-}
-
-// Интерфейс для метрик абзаца
-interface ParagraphMetrics {
-  signal_strength: number;
-  complexity: number;
-  semantic_function?: string;
-}
 
 interface AppState {
   // === ДАННЫЕ СЕССИИ ===
@@ -41,12 +16,9 @@ interface AppState {
   backendError: string | null
 
   // === ТЕКСТОВЫЙ РЕДАКТОР ===
-  editorFullText: string
   editorTopic: string
-
-  // === СОСТОЯНИЕ РЕДАКТИРОВАНИЯ ===
-  editingState: EditingState
-
+  editorText: string
+  
   // === НАСТРОЙКИ ПАНЕЛЕЙ ===
   fontSize: number
   fontFamily: string
@@ -69,13 +41,20 @@ interface AppState {
   setSession: (session: AnalysisResponse | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  setEditorFullText: (text: string) => void
   setEditorTopic: (topic: string) => void
+  setEditorText: (text: string) => void
 
   // === ОСНОВНЫЕ ДЕЙСТВИЯ ===
   handleAnalyzeText: (text: string, topic: string) => Promise<void>
   handleSemanticRefreshSuccess: (updatedSession: AnalysisResponse) => void
   markSemanticsAsStale: () => void
+  
+  // === РАБОТА С АБЗАЦАМИ ===
+  updateParagraph: (id: number, text: string) => void
+  addParagraph: (text: string, afterId?: number) => void
+  deleteParagraph: (id: number) => void
+  updateParagraphsFromText: (text: string) => void
+  getVirtualText: () => string
   
   // === СИНХРОНИЗАЦИЯ ===
   setSelectedParagraph: (id: string | null) => void
@@ -86,17 +65,15 @@ interface AppState {
   updateSettings: (settings: Partial<Pick<AppState, 'fontSize' | 'fontFamily' | 'signalMinColor' | 'signalMaxColor' | 'complexityMinColor' | 'complexityMaxColor'>>) => void
   updateFilters: (filters: Partial<Pick<AppState, 'sortField' | 'sortDirection' | 'semanticFilter' | 'searchQuery'>>) => void
 
-  // === ФУНКЦИИ ДЛЯ РЕДАКТИРОВАНИЯ ===
-  startEditing: (mode: EditingState['mode'], paragraphId?: number) => void
-  updateEditingText: (text: string) => void
-  finishEditing: () => Promise<void>
-  calculateParagraphPositions: (text: string) => ParagraphPosition[]
-  debouncedUpdateMetrics: (text: string, paragraphId?: number) => void
-  cancelDebouncedMetricsUpdate: () => void
-
   // === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ===
   showEditorSettings: boolean
   setShowEditorSettings: (show: boolean) => void
+
+  // === АНАЛИЗ МЕТРИК ===
+  analyzeParagraphMetrics: (paragraphId: number, text: string) => Promise<void>
+  analyzeParagraphMetricsQuietly: (paragraphId: number, text: string) => Promise<void>
+  updateParagraphMetricsQuietly: (paragraphId: number, metrics: any) => void
+  analyzeFullText: (text?: string) => Promise<void>
 }
 
 // Константы по умолчанию
@@ -106,45 +83,9 @@ const DEFAULT_COMPLEXITY_MIN_COLOR = "#00FF00"
 const DEFAULT_COMPLEXITY_MAX_COLOR = "#FF0000"
 const DEFAULT_FONT_FAMILY = "Arial, sans-serif"
 
-// Вспомогательная функция для точного расчёта offsetTop относительно контейнера
-function getRelativeOffsetTop(element: HTMLElement, container: HTMLElement): number {
-  let offset = 0
-  let el: HTMLElement | null = element
-  while (el && el !== container) {
-    offset += el.offsetTop
-    el = el.offsetParent as HTMLElement | null
-  }
-  return offset
-}
-
 export const useAppStore = create<AppState>()(
   devtools(
     subscribeWithSelector((set, get) => {
-      // Создаем debounced функцию для анализа
-      const debouncedAnalyze = debounce(async (text: string) => {
-        const state = get();
-        if (!state.session) return;
-
-        try {
-          console.log('🔄 Запуск отложенного анализа текста');
-          const updatedSession = await api.initializeAnalysis(
-            text,
-            state.editorTopic
-          );
-          
-          console.log('✅ Анализ текста завершен:', {
-            paragraphsCount: updatedSession.paragraphs.length,
-            timestamp: new Date().toLocaleTimeString()
-          });
-
-          set({ session: updatedSession });
-        } catch (error) {
-          console.error('❌ Ошибка при анализе текста:', error);
-          // Показываем настройки редактора, чтобы намекнуть пользователю на кнопку анализа
-          set({ showEditorSettings: true });
-        }
-      }, 2000); // 2 секунды задержки
-
       return {
         // === НАЧАЛЬНОЕ СОСТОЯНИЕ ===
         session: null,
@@ -153,18 +94,9 @@ export const useAppStore = create<AppState>()(
         isSemanticAnalysisUpToDate: true,
         isBackendReady: true,
         backendError: null,
-        editorFullText: '',
         editorTopic: '',
+        editorText: '',
         showEditorSettings: false,
-        
-        // Начальное состояние редактирования
-        editingState: {
-          mode: 'none',
-          paragraphId: null,
-          text: '',
-          lastChangeTimestamp: null,
-          positions: []
-        },
 
         // Настройки по умолчанию
         fontSize: 12,
@@ -194,8 +126,8 @@ export const useAppStore = create<AppState>()(
             
             set({
               session: analysisSessionData,
-              editorFullText: text,
               editorTopic: analysisSessionData.metadata.topic,
+              editorText: text,
               isSemanticAnalysisUpToDate: true,
               loading: false
             })
@@ -216,12 +148,171 @@ export const useAppStore = create<AppState>()(
         handleSemanticRefreshSuccess: (updatedSession) => {
           set({
             session: updatedSession,
+            editorText: updatedSession.paragraphs.map(p => p.text).join('\n\n'),
             isSemanticAnalysisUpToDate: true
           })
           document.title = updatedSession.metadata.topic || "Анализ текста (обновлено)"
         },
 
         markSemanticsAsStale: () => set({ isSemanticAnalysisUpToDate: false }),
+
+        // === РАБОТА С АБЗАЦАМИ ===
+        updateParagraph: (id: number, text: string) => {
+          const state = get()
+          if (!state.session) return
+
+          console.log('📝 Обновление абзаца:', { id, text: text.substring(0, 50) + '...' })
+          
+          const updatedParagraphs = state.session.paragraphs.map(p => 
+            p.id === id ? { ...p, text } : p
+          )
+
+          const newSession = {
+            ...state.session,
+            paragraphs: updatedParagraphs
+          }
+
+          // Обновляем только сессию - editorText будет синхронизирован через getVirtualText()
+          set({
+            session: newSession
+          })
+        },
+
+        addParagraph: (text: string, afterId?: number) => {
+          const state = get()
+          if (!state.session) return
+
+          console.log('➕ Добавление абзаца:', { text: text.substring(0, 50) + '...', afterId })
+          
+          // Находим максимальный ID для нового абзаца
+          const maxId = Math.max(...state.session.paragraphs.map(p => p.id), 0)
+          const newParagraph: ParagraphData = {
+            id: maxId + 1,
+            text,
+            metrics: {
+              signal_strength: 0,
+              complexity: 0,
+              semantic_function: 'Не определено'
+            }
+          }
+
+          let updatedParagraphs
+          if (afterId !== undefined) {
+            // Вставляем после указанного абзаца
+            const insertIndex = state.session.paragraphs.findIndex(p => p.id === afterId) + 1
+            updatedParagraphs = [
+              ...state.session.paragraphs.slice(0, insertIndex),
+              newParagraph,
+              ...state.session.paragraphs.slice(insertIndex)
+            ]
+          } else {
+            // Добавляем в конец
+            updatedParagraphs = [...state.session.paragraphs, newParagraph]
+          }
+
+          const newSession = {
+            ...state.session,
+            paragraphs: updatedParagraphs
+          }
+
+          // Обновляем только сессию
+          set({
+            session: newSession
+          })
+        },
+
+        deleteParagraph: (id: number) => {
+          const state = get()
+          if (!state.session) return
+
+          console.log('🗑️ Удаление абзаца:', { id })
+          
+          const updatedParagraphs = state.session.paragraphs.filter(p => p.id !== id)
+
+          const newSession = {
+            ...state.session,
+            paragraphs: updatedParagraphs
+          }
+
+          // Обновляем только сессию
+          set({
+            session: newSession
+          })
+        },
+
+        updateParagraphsFromText: (text: string) => {
+          const state = get()
+          
+          // Всегда обновляем editorText (очистка уже произошла в TextEditorPanel)
+          set({ editorText: text })
+          
+          if (!state.session) {
+            return
+          }
+
+          // Улучшенная логика разбиения текста
+          // Разбиваем по двойным переводам строк, но сохраняем пустые строки как разделители
+          const paragraphTexts = text.split(/\n\s*\n/).filter(t => t.replace(/^\s+/, '')) // Фильтруем по содержимому без начальных пробелов
+          const currentParagraphs = state.session.paragraphs
+          
+          // Создаем новый массив абзацев
+          const updatedParagraphs: ParagraphData[] = []
+          
+          paragraphTexts.forEach((paragraphText, index) => {
+            // Убираем пробелы только в начале, но сохраняем в конце
+            const cleanText = paragraphText.replace(/^\s+/, '') // Убираем пробелы только в начале
+            if (!cleanText) return // Пропускаем пустые абзацы
+            
+            if (currentParagraphs[index]) {
+              // Обновляем существующий абзац
+              updatedParagraphs.push({
+                ...currentParagraphs[index],
+                text: cleanText
+              })
+            } else {
+              // Добавляем новый абзац
+              const maxId = Math.max(...currentParagraphs.map(p => p.id), 0, ...updatedParagraphs.map(p => p.id))
+              updatedParagraphs.push({
+                id: maxId + 1,
+                text: cleanText,
+                metrics: {
+                  signal_strength: 0,
+                  complexity: 0,
+                  semantic_function: 'Не определено'
+                }
+              })
+            }
+          })
+
+          // Если абзацев стало меньше, сохраняем только нужное количество
+          const finalParagraphs = updatedParagraphs.slice(0, paragraphTexts.length)
+
+          set({
+            session: {
+              ...state.session,
+              paragraphs: finalParagraphs
+            }
+          })
+        },
+
+        getVirtualText: () => {
+          const state = get()
+          
+          // Если нет сессии, возвращаем editorText
+          if (!state.session || state.session.paragraphs.length === 0) {
+            return state.editorText
+          }
+          
+          // Если есть сессия и editorText пустой, возвращаем текст из абзацев
+          if (!state.editorText.trim()) {
+            return state.session.paragraphs
+              .map(p => p.text)
+              .join('\n\n')
+          }
+          
+          // Во время редактирования возвращаем editorText (для предотвращения сброса курсора)
+          return state.editorText
+        },
 
         // === СИНХРОНИЗАЦИЯ ПАНЕЛЕЙ ===
         setSelectedParagraph: (id) => {
@@ -278,172 +369,143 @@ export const useAppStore = create<AppState>()(
         setSession: (session) => set({ session }),
         setLoading: (loading) => set({ loading }),
         setError: (error) => set({ error }),
-        setEditorFullText: (text) => set({ editorFullText: text }),
         setEditorTopic: (topic) => set({ editorTopic: topic }),
+        setEditorText: (text: string) => set({ editorText: text }),
 
-        // === ФУНКЦИИ ДЛЯ РЕДАКТИРОВАНИЯ ===
-        startEditing: (mode, paragraphId) => {
-          console.log('🖊️ Начало редактирования:', {
-            mode,
-            paragraphId,
-            timestamp: new Date().toLocaleTimeString()
-          });
-          const state = get();
-          if (!state.session) return;
+        // === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ===
+        setShowEditorSettings: (show: boolean) => set({ showEditorSettings: show }),
 
-          const currentText = mode === 'card-editor' && paragraphId !== null
-            ? state.session.paragraphs.map(p => p.text).join('\n\n')
-            : state.editorFullText;
-
-          set({
-            editingState: {
-              mode,
-              paragraphId: paragraphId || null,
-              text: currentText,
-              lastChangeTimestamp: Date.now(),
-              positions: get().calculateParagraphPositions(currentText)
-            }
-          });
-        },
-
-        updateEditingText: (text: string) => {
-          const state = get();
-          const positions = get().calculateParagraphPositions(text);
-          
-          console.log('📝 Обновление текста:', {
-            mode: state.editingState.mode,
-            timestamp: new Date().toLocaleTimeString()
-          });
-
-          // Если текст не изменился, пропускаем обновление
-          if (state.editingState.text === text && state.editorFullText === text) {
-            return;
+        // === АНАЛИЗ МЕТРИК ===
+        analyzeParagraphMetrics: async (paragraphId: number, text: string) => {
+          const state = get()
+          if (!state.session) {
+            console.warn('⚠️ Нет активной сессии для анализа абзаца')
+            return
           }
 
-          // Обновляем состояние редактирования и editorFullText
-          set({
-            editorFullText: text,
-            editingState: {
-              ...state.editingState,
-              text,
-              lastChangeTimestamp: Date.now(),
-              positions
-            }
-          });
-
-          // Если редактируем в текстовом редакторе и есть сессия, обновляем карточки для отображения
-          if (state.editingState.mode === 'text-editor' && state.session) {
-            console.log('🔄 Немедленная синхронизация карточек для отображения');
+          const startTime = performance.now()
+          console.log(`🔄 Анализ метрик абзаца ${paragraphId} (${text.length} символов)`)
+          console.log(`📝 Текст для анализа: "${text.substring(0, 100)}..."`)
+          
+          try {
+            // Вызываем API для расчета метрик одного абзаца
+            const metrics = await api.calculateParagraphMetrics(
+              state.session.metadata.session_id,
+              paragraphId,
+              text
+            )
             
-            // Разбиваем текст на абзацы
-            const paragraphs = text.split('\n\n').filter(p => p.trim());
+            const endTime = performance.now()
+            const duration = endTime - startTime
+            console.log(`✅ Метрики абзаца ${paragraphId} получены за ${duration.toFixed(2)}мс:`, metrics)
             
-            // Простая стратегия: обновляем только существующие абзацы, не создаем новые
-            // Новые абзацы будут созданы только через debounced API анализ
-            const updatedParagraphs = state.session.paragraphs.map((existingParagraph, index) => {
-              if (index < paragraphs.length) {
-                // Обновляем текст существующего абзаца
-                return {
-                  ...existingParagraph,
-                  text: paragraphs[index].trim()
-                };
-              }
-              // Если абзацев стало меньше, оставляем существующий абзац как есть
-              // (он будет удален через API анализ)
-              return existingParagraph;
-            });
+            // Обновляем ТОЛЬКО метрики абзаца в сессии (НЕ текст!)
+            const updatedParagraphs = state.session.paragraphs.map(p => 
+              p.id === paragraphId 
+                ? { ...p, metrics: { ...p.metrics, ...metrics } }  // Убрал text - обновляем только метрики
+                : p
+            )
 
-            // Обновляем сессию с обновленными абзацами (только для отображения)
+            console.log(`🔄 Обновление метрик в store для абзаца ${paragraphId}`)
+            console.log(`📊 Старые метрики:`, state.session.paragraphs.find(p => p.id === paragraphId)?.metrics)
+            console.log(`📊 Новые метрики:`, metrics)
+
             set({
               session: {
                 ...state.session,
                 paragraphs: updatedParagraphs
               }
-            });
-          }
-        },
-
-        finishEditing: async () => {
-          const state = get();
-          if (state.editingState.mode === 'none') return;
-
-          console.log('✍️ Завершение редактирования:', {
-            mode: state.editingState.mode,
-            paragraphId: state.editingState.paragraphId,
-            timestamp: new Date().toLocaleTimeString()
-          });
-          try {
-            let updatedSession;
+            })
             
-            if (state.editingState.mode === 'card-editor' && state.editingState.paragraphId) {
-              // Сохраняем изменения одной карточки
-              updatedSession = await api.updateTextAndRestructureParagraph(
-                state.session!.metadata.session_id,
-                state.editingState.paragraphId,
-                state.editingState.text
-              );
-            } else {
-              // Обновляем весь текст
-              updatedSession = await api.initializeAnalysis(
-                state.editingState.text,
-                state.editorTopic
-              );
-            }
-
-            // Обновляем сессию
-            set({ session: updatedSession });
-
-            // Обновляем полный текст в редакторе, чтобы он соответствовал карточкам
-            const fullText = updatedSession.paragraphs
-              .sort((a: any, b: any) => a.id - b.id)
-              .map((p: any) => p.text)
-              .join('\n\n');
-            set({ editorFullText: fullText });
-
-            // Сбрасываем состояние редактирования
-            set({
-              editingState: {
-                mode: 'none',
-                paragraphId: null,
-                text: '',
-                lastChangeTimestamp: null,
-                positions: []
-              }
-            });
+            console.log(`✅ Метрики абзаца ${paragraphId} обновлены в store`)
+            
           } catch (error) {
-            console.error('Ошибка при сохранении изменений:', error);
+            const endTime = performance.now()
+            const duration = endTime - startTime
+            console.error(`❌ Ошибка при анализе метрик абзаца ${paragraphId} (${duration.toFixed(2)}мс):`, error)
+            // Не показываем ошибку пользователю для фонового анализа
           }
         },
 
-        calculateParagraphPositions: (text: string): ParagraphPosition[] => {
-          const paragraphs = text.split('\n\n');
-          const positions: ParagraphPosition[] = [];
-          let currentPosition = 0;
+        analyzeParagraphMetricsQuietly: async (paragraphId: number, text: string) => {
+          const state = get()
+          if (!state.session) {
+            console.warn('⚠️ Нет активной сессии для тихого анализа абзаца')
+            return
+          }
 
-          paragraphs.forEach((paragraph, index) => {
-            const start = currentPosition;
-            const end = start + paragraph.length;
+          const startTime = performance.now()
+          console.log(`🔇 Тихий анализ метрик абзаца ${paragraphId} (${text.length} символов)`)
+          
+          try {
+            // Вызываем API для расчета метрик одного абзаца
+            const metrics = await api.calculateParagraphMetrics(
+              state.session.metadata.session_id,
+              paragraphId,
+              text
+            )
             
-            positions.push({
-              id: index + 1, // Временный ID, потом заменим на реальный
-              start,
-              end,
-              text: paragraph
-            });
-
-            currentPosition = end + 2; // +2 для \n\n
-          });
-
-          return positions;
+            const endTime = performance.now()
+            const duration = endTime - startTime
+            console.log(`✅ Тихие метрики абзаца ${paragraphId} получены за ${duration.toFixed(2)}мс:`, metrics)
+            
+            // Используем тихое обновление метрик (без перерендера textarea)
+            state.updateParagraphMetricsQuietly(paragraphId, metrics)
+            
+          } catch (error) {
+            const endTime = performance.now()
+            const duration = endTime - startTime
+            console.error(`❌ Ошибка при тихом анализе метрик абзаца ${paragraphId} (${duration.toFixed(2)}мс):`, error)
+            // Не показываем ошибку пользователю для тихого анализа
+          }
         },
 
-        // Экспортируем функцию обновления метрик
-        debouncedUpdateMetrics: debouncedAnalyze,
-        // Функция отмены больше не нужна, но оставим её пустой для совместимости
-        cancelDebouncedMetricsUpdate: () => {},
+        updateParagraphMetricsQuietly: (paragraphId: number, metrics: any) => {
+          const state = get()
+          if (!state.session) return
 
-        // === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ===
-        setShowEditorSettings: (show: boolean) => set({ showEditorSettings: show }),
+          console.log(`🔇 Тихое обновление метрик абзаца ${paragraphId}:`, metrics)
+          
+          // Находим абзац и обновляем только его метрики напрямую
+          const paragraph = state.session.paragraphs.find(p => p.id === paragraphId)
+          if (paragraph) {
+            // Обновляем метрики напрямую в объекте (мутация)
+            Object.assign(paragraph.metrics, metrics)
+            
+            // Принудительно обновляем только компоненты карточек, не textarea
+            // Используем минимальное обновление состояния
+            set((prevState) => ({
+              ...prevState,
+              // Создаем новую ссылку на сессию для React, но сохраняем ту же структуру
+              session: { ...prevState.session! }
+            }))
+          }
+        },
+
+        analyzeFullText: async (text?: string) => {
+          const state = get()
+          
+          // Используем переданный текст или получаем из виртуального редактора
+          const textToAnalyze = text || state.getVirtualText()
+          
+          if (!textToAnalyze.trim() || !state.editorTopic.trim()) {
+            console.warn('⚠️ Нет текста или темы для полного анализа')
+            return
+          }
+          
+          console.log('🔄 Полный анализ текста')
+          
+          try {
+            // Используем существующую функцию полного анализа
+            await state.handleAnalyzeText(textToAnalyze, state.editorTopic)
+            console.log('✅ Полный анализ завершен')
+          } catch (error) {
+            console.error('❌ Ошибка при полном анализе:', error)
+            set({ 
+              error: error instanceof Error ? error.message : 'Ошибка при анализе текста'
+            })
+          }
+        },
       }
     }),
     { name: 'text-analyzer-store' }

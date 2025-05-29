@@ -2,40 +2,32 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface PanelProps {
-  id: string
   title: string
-  children: React.ReactNode
-  headerControls?: React.ReactNode
-  headerButtons?: React.ReactNode
-  className?: string
-  defaultExpanded?: boolean
   icon?: string
+  children: React.ReactNode
   isExpanded?: boolean
   onToggleExpanded?: () => void
+  headerControls?: React.ReactNode
+  headerButtons?: React.ReactNode
   showSettings?: boolean
   onToggleSettings?: () => void
 }
 
 export const Panel: React.FC<PanelProps> = ({
-  id,
   title,
+  icon,
   children,
+  isExpanded = true,
+  onToggleExpanded,
   headerControls,
   headerButtons,
-  className = '',
-  defaultExpanded = true,
-  icon = '📄',
-  isExpanded: externalIsExpanded,
-  onToggleExpanded,
-  showSettings: externalShowSettings,
+  showSettings = false,
   onToggleSettings
 }) => {
-  const [internalIsExpanded, setInternalIsExpanded] = useState(defaultExpanded)
-  const [showSettings, setShowSettings] = useState(externalShowSettings || false)
+  const [internalIsExpanded, setInternalIsExpanded] = useState(true)
 
   // Используем внешнее состояние если оно передано, иначе внутреннее
-  const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalIsExpanded
-  const currentShowSettings = externalShowSettings !== undefined ? externalShowSettings : showSettings
+  const currentIsExpanded = isExpanded !== undefined ? isExpanded : internalIsExpanded
   
   const toggleExpanded = () => {
     if (onToggleExpanded) {
@@ -49,7 +41,7 @@ export const Panel: React.FC<PanelProps> = ({
     if (onToggleSettings) {
       onToggleSettings()
     } else {
-      setShowSettings(!showSettings)
+      setInternalIsExpanded(!internalIsExpanded)
     }
   }
 
@@ -67,7 +59,6 @@ export const Panel: React.FC<PanelProps> = ({
         alignSelf: 'stretch',
         width: '100%'
       }}
-      className={className}
     >
       {/* Header */}
       <div style={{
@@ -75,14 +66,14 @@ export const Panel: React.FC<PanelProps> = ({
         top: 0,
         zIndex: 10,
         backgroundColor: '#f1f3f4',
-        borderBottom: isExpanded ? '1px solid #e9ecef' : 'none',
-        padding: isExpanded ? '8px 12px' : '8px 4px',
+        borderBottom: currentIsExpanded ? '1px solid #e9ecef' : 'none',
+        padding: currentIsExpanded ? '8px 12px' : '8px 4px',
         borderTopLeftRadius: '6px',
         borderTopRightRadius: '6px',
         transition: 'padding 0.3s ease',
-        flex: isExpanded ? '0 0 auto' : '1 1 auto'
+        flex: currentIsExpanded ? '0 0 auto' : '1 1 auto'
       }}>
-        {isExpanded ? (
+        {currentIsExpanded ? (
           // Развернутый заголовок
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -148,7 +139,7 @@ export const Panel: React.FC<PanelProps> = ({
 
             {/* Settings Panel */}
             <AnimatePresence>
-              {currentShowSettings && headerControls && (
+              {showSettings && headerControls && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
@@ -219,7 +210,7 @@ export const Panel: React.FC<PanelProps> = ({
 
       {/* Content */}
       <AnimatePresence>
-        {isExpanded && (
+        {currentIsExpanded && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -235,7 +226,9 @@ export const Panel: React.FC<PanelProps> = ({
           >
             <div style={{ 
               flex: 1, 
-              overflow: 'auto'
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
             }}>
               {children}
             </div>

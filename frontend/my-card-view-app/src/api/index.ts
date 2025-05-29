@@ -306,9 +306,11 @@ export async function loadDemoData(): Promise<AnalysisResponse> {
 
 // Интерфейс для метрик абзаца
 interface ParagraphMetrics {
-  signal_strength: number;
-  complexity: number;
-  semantic_function?: string;
+  lix?: number | null;
+  smog?: number | null;
+  complexity?: number | null;
+  signal_strength?: number | null;
+  semantic_function?: string | null;
 }
 
 // Функция для расчета метрик одного абзаца
@@ -322,9 +324,7 @@ export const calculateParagraphMetrics = async (
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      text: text,
-    }),
+    body: JSON.stringify(text), // Отправляем строку напрямую, а не объект
   });
 
   if (!response.ok) {
@@ -344,9 +344,7 @@ export const calculateTextMetrics = async (
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      text: text,
-    }),
+    body: JSON.stringify(text), // Отправляем строку напрямую, а не объект
   });
 
   if (!response.ok) {

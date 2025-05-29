@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
-import { TextEditorPanel } from './components/panels/TextEditorPanel'
-import { CardDeckPanel } from './components/panels/CardDeckPanel'
+import { TextEditorPanelV2 } from './components/panels/TextEditorPanel/TextEditorPanelV2'
+import { CardDeckPanelV2 } from './components/panels/CardDeckPanel/CardDeckPanelV2'
 import { SemanticMapPanel } from './components/panels/SemanticMapPanel'
 import { PanelResizer } from './components/panels/PanelResizer'
-import { useAppStore } from './store/appStore'
-import { fetchAnalysis } from './api'
+import { TestChunks } from './components/TestChunks'
+import { useDocumentStore } from './store/documentStore'
 import './App.css'
 
 // Константы для панелей
@@ -14,21 +14,12 @@ const COLLAPSED_PANEL_WIDTH = 48
 const RESIZER_WIDTH = 4
 
 function App() {
-  // Вычисляем начальную ширину панелей
-  const calculateInitialPanelWidth = () => {
-    const viewportWidth = window.innerWidth
-    const totalResizerWidth = (PANEL_COUNT - 1) * RESIZER_WIDTH
-    const availableWidth = viewportWidth - totalResizerWidth
-    const panelWidth = Math.floor(availableWidth / PANEL_COUNT)
-    
-    console.log('🔍 Вычисление начальной ширины панелей:', {
-      viewportWidth,
-      totalResizerWidth,
-      availableWidth,
-      panelWidth
-    })
-    
-    return panelWidth
+  // Проверяем URL для тестового режима
+  const isTestMode = window.location.pathname === '/test-chunks' || window.location.search.includes('test=chunks');
+  
+  // Если тестовый режим, показываем соответствующий тестовый компонент
+  if (isTestMode) {
+    return <TestChunks />;
   }
 
   // Состояние flex-весов панелей (вместо абсолютных ширин)
@@ -52,20 +43,11 @@ function App() {
     semantic: 1
   })
 
-  // Подсчитываем количество развернутых панелей
-  const expandedPanelsCount = Object.values(collapsedPanels).filter(collapsed => !collapsed).length
-  const allPanelsExpanded = expandedPanelsCount === PANEL_COUNT
-
   const { 
-    session, 
+    document,
     loading, 
-    error, 
-    setSession, 
-    setEditorFullText, 
-    setEditorTopic, 
-    setLoading, 
-    setError 
-  } = useAppStore()
+    error
+  } = useDocumentStore()
 
   // Функции для изменения размера панелей
   const handleEditorResize = (delta: number) => {
@@ -151,44 +133,6 @@ function App() {
     }
   }
 
-  // Загрузка сессии из URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const sessionIdFromUrl = params.get('session_id')
-    
-    if (sessionIdFromUrl) {
-      console.log('🔍 Найден session_id в URL:', sessionIdFromUrl)
-      const loadSession = async () => {
-        try {
-          setLoading(true)
-          setError(null)
-          console.log('📡 Загружаем сессию из API...')
-          const loadedSession = await fetchAnalysis(sessionIdFromUrl)
-          
-          setSession(loadedSession)
-          setEditorFullText(loadedSession.paragraphs.map(p => p.text).join('\n\n'))
-          setEditorTopic(loadedSession.metadata.topic || '')
-          setLoading(false)
-          
-          document.title = loadedSession.metadata.topic || "Анализ текста"
-          console.log('✅ Сессия загружена успешно')
-        } catch (err) {
-          console.error('❌ Ошибка загрузки сессии:', err)
-          setError(err instanceof Error ? err.message : 'Ошибка при загрузке сессии')
-          setLoading(false)
-          
-          // Очищаем URL от некорректного session_id
-          window.history.replaceState({}, document.title, window.location.pathname)
-          console.log('🧹 URL очищен от некорректного session_id')
-        }
-      }
-      
-      loadSession()
-    } else {
-      console.log('ℹ️ session_id в URL не найден, начинаем с чистого состояния')
-    }
-  }, [setSession, setEditorFullText, setEditorTopic, setLoading, setError])
-
   // Пересчет при изменении размера окна (flex-веса остаются прежними)
   useEffect(() => {
     const handleResize = () => {
@@ -201,7 +145,7 @@ function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  if (loading && !session) {
+  if (loading && !document) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
@@ -235,9 +179,9 @@ function App() {
               color: '#1f2937',
               margin: 0 
             }}>
-              {session?.metadata.topic || 'Анализатор текста'}
+              {document?.metadata.topic || 'Анализатор текста'}
             </h1>
-            {session && (
+            {document && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#6b7280' }}>
                 <span style={{ 
                   padding: '2px 8px', 
@@ -247,7 +191,7 @@ function App() {
                   alignItems: 'center',
                   gap: '4px'
                 }}>
-                  📄 {session.paragraphs.length} абз.
+                  🧩 {document.chunks.length} чанков
                 </span>
                 <span style={{ 
                   padding: '2px 8px', 
@@ -258,24 +202,7 @@ function App() {
                   alignItems: 'center',
                   gap: '4px'
                 }}>
-                  📊 Сигнал: {(
-                    session.paragraphs.reduce((sum, p) => sum + (p.metrics.signal_strength || 0), 0) / 
-                    session.paragraphs.length
-                  ).toFixed(2)}
-                </span>
-                <span style={{ 
-                  padding: '2px 8px', 
-                  backgroundColor: '#fef3f2', 
-                  borderRadius: '4px',
-                  color: '#dc2626',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  🧩 Сложность: {(
-                    session.paragraphs.reduce((sum, p) => sum + (p.metrics.complexity || 0), 0) / 
-                    session.paragraphs.length
-                  ).toFixed(2)}
+                  📄 {document.text.length} символов
                 </span>
                 <span style={{ 
                   padding: '2px 8px', 
@@ -283,7 +210,7 @@ function App() {
                   borderRadius: '4px',
                   color: '#16a34a'
                 }}>
-                  ID: {session.metadata.session_id.slice(0, 8)}...
+                  📊 V{document.version}
                 </span>
               </div>
             )}
@@ -302,53 +229,6 @@ function App() {
                 Ошибка: {error}
               </div>
             )}
-            <button
-              onClick={() => {
-                setSession(null)
-                setEditorFullText('')
-                setEditorTopic('')
-                setError(null)
-                document.title = "Анализатор текста"
-                window.history.pushState({}, document.title, window.location.pathname)
-              }}
-              style={{
-                padding: '4px 12px',
-                fontSize: '0.875rem',
-                backgroundColor: '#f3f4f6',
-                color: '#374151',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                transition: 'background-color 0.2s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e5e7eb'}
-              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-            >
-              🔄 Новый анализ
-            </button>
-            {error && (
-              <button
-                onClick={() => {
-                  setError(null)
-                  window.history.replaceState({}, document.title, window.location.pathname)
-                }}
-                style={{
-                  padding: '4px 12px',
-                  fontSize: '0.875rem',
-                  backgroundColor: '#fef2f2',
-                  color: '#dc2626',
-                  border: '1px solid #fecaca',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#fef2f2'}
-                title="Очистить ошибку и URL"
-              >
-                ❌ Очистить ошибку
-              </button>
-            )}
           </div>
         </div>
       </header>
@@ -365,8 +245,8 @@ function App() {
       }}>
         {/* Text Editor Panel */}
         <div style={getPanelStyle('editor')}>
-          <TextEditorPanel 
-            icon="✍️" 
+          <TextEditorPanelV2 
+            icon="🧩" 
             isExpanded={!collapsedPanels.editor}
             onToggleExpanded={() => togglePanel('editor')}
           />
@@ -379,7 +259,7 @@ function App() {
 
         {/* Cards Panel */}
         <div style={getPanelStyle('cards')}>
-          <CardDeckPanel 
+          <CardDeckPanelV2 
             icon="🃏" 
             isExpanded={!collapsedPanels.cards}
             onToggleExpanded={() => togglePanel('cards')}

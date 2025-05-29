@@ -154,6 +154,7 @@ class AnalysisOrchestrator:
     async def analyze_incremental(self, session_id: str, paragraph_id: int, new_text: str) -> Optional[Dict[str, Any]]:
         """
         Обновляет анализ для одного измененного абзаца.
+        ВАЖНО: НЕ обновляет текст в сессии, только рассчитывает метрики для переданного текста.
         """
         logger.info(f"Инкрементальное обновление для сессии {session_id}, параграф ID: {paragraph_id}")
         analysis_data = self.session_store.get_analysis(session_id)
@@ -168,36 +169,67 @@ class AnalysisOrchestrator:
             logger.error(f"Неверный ID параграфа {paragraph_id} для сессии {session_id} (всего {len(df)} параграфов).")
             return None # Или выбросить HTTPException в роутере
             
-        df.loc[paragraph_id, 'text'] = new_text
-        paragraph_df_slice = df.iloc[[paragraph_id]].copy() # DataFrame с одной строкой для анализа
+        # НЕ обновляем текст в сессии! Создаем временный DataFrame для анализа
+        temp_df = df.copy()
+        temp_df.loc[paragraph_id, 'text'] = new_text
+        paragraph_df_slice = temp_df.iloc[[paragraph_id]].copy() # DataFrame с одной строкой для анализа
 
         # 1. Readability (синхронная, запускаем в executor)
         logger.debug(f"Инкрементальный анализ читаемости для параграфа {paragraph_id}...")
         updated_readability_df = await self._run_readability_async(paragraph_df_slice) # Используем _run_readability_async
-        if not updated_readability_df.empty:
-            for col in ['lix', 'smog', 'complexity']:
-                if col in updated_readability_df:
-                    df.loc[paragraph_id, col] = updated_readability_df.iloc[0][col]
         
         # 2. Signal Strength (асинхронная)
         logger.debug(f"Инкрементальный анализ сигнальности для параграфа {paragraph_id}...")
         # analyze_signal_strength_incremental ожидает полный DataFrame и список измененных индексов
         # Это более эффективно, чем передавать слайс и потом объединять.
-        df = self.embedding_service.analyze_signal_strength_incremental(df, topic, [paragraph_id])
+        temp_df = self.embedding_service.analyze_signal_strength_incremental(temp_df, topic, [paragraph_id])
         
         # 3. Semantic Function (асинхронная, с флагом single_paragraph)
         logger.debug(f"Инкрементальный семантический анализ для параграфа {paragraph_id}...")
         updated_semantic_df = await semantic_function.analyze_semantic_function_batch(
             paragraph_df_slice, topic, self.openai_service, single_paragraph=True
         )
+        
+        # Собираем метрики из результатов анализа (НЕ сохраняем в сессию!)
+        metrics = {}
+        
+        # Readability метрики
+        if not updated_readability_df.empty:
+            for col in ['lix', 'smog', 'complexity']:
+                if col in updated_readability_df:
+                    value = updated_readability_df.iloc[0][col]
+                    if pd.isna(value):
+                        metrics[col] = None
+                    elif isinstance(value, (np.generic, pd.Timestamp)):
+                        metrics[col] = value.item() if hasattr(value, 'item') else value
+                    else:
+                        metrics[col] = value
+        
+        # Signal strength метрики
+        if paragraph_id < len(temp_df):
+            signal_value = temp_df.loc[paragraph_id, 'signal_strength'] if 'signal_strength' in temp_df.columns else None
+            if pd.isna(signal_value):
+                metrics['signal_strength'] = None
+            elif isinstance(signal_value, (np.generic, pd.Timestamp)):
+                metrics['signal_strength'] = signal_value.item() if hasattr(signal_value, 'item') else signal_value
+            else:
+                metrics['signal_strength'] = signal_value
+        
+        # Semantic метрики
         if not updated_semantic_df.empty:
             for col in ['semantic_function', 'semantic_method', 'semantic_error']:
                 if col in updated_semantic_df:
-                    df.loc[paragraph_id, col] = updated_semantic_df.iloc[0][col]
-
-        self.session_store.save_analysis(session_id, df, topic)
-        # Возвращаем данные только для обновленного абзаца
-        return self._format_paragraph_data(df.loc[paragraph_id].copy()) # Передаем копию Series
+                    value = updated_semantic_df.iloc[0][col]
+                    if pd.isna(value):
+                        metrics[col] = None
+                    elif isinstance(value, (np.generic, pd.Timestamp)):
+                        metrics[col] = value.item() if hasattr(value, 'item') else value
+                    else:
+                        metrics[col] = value
+        
+        # Возвращаем ТОЛЬКО метрики (без текста!)
+        logger.info(f"Инкрементальный анализ завершен для параграфа {paragraph_id}")
+        return metrics
 
     async def get_cached_analysis(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Получает сохраненные результаты анализа из хранилища сессий."""
@@ -643,3 +675,131 @@ class AnalysisOrchestrator:
         self.session_store.save_analysis(session_id, final_df, topic)
         logger.info(f"[Orchestrator] Абзац {paragraph_id_to_process} обновлен/разделен. Сессия {session_id} теперь содержит {len(final_df)} абзацев.")
         return self._format_analysis_result(final_df, topic, session_id)
+
+    async def _run_fast_analysis_pipeline(self, paragraphs: List[str], topic: str) -> pd.DataFrame:
+        """
+        Запускает быстрый анализ без семантической функции (только readability + signal strength).
+        Используется для debounced обновлений при редактировании.
+        """
+        logger.info(f"Запуск быстрого анализа для {len(paragraphs)} абзацев, тема: '{topic[:30]}...'")
+        
+        if not paragraphs:
+            logger.warning("Быстрый анализ получил пустой список абзацев.")
+            return pd.DataFrame(columns=['paragraph_id', 'text', 'lix', 'smog', 'complexity', 'signal_strength'])
+
+        base_df = pd.DataFrame({
+            'paragraph_id': range(len(paragraphs)),
+            'text': paragraphs
+        })
+        
+        # Запускаем только readability и signal strength (без семантики)
+        task_readability = self._run_readability_async(base_df.copy())
+        task_signal = self._run_signal_strength_async(base_df.copy(), topic)
+
+        # Ожидаем завершения задач
+        logger.debug("Ожидание результатов от быстрого анализа...")
+        results = await asyncio.gather(task_readability, task_signal, return_exceptions=True)
+        logger.debug("Быстрый анализ завершен.")
+
+        # Объединяем результаты
+        final_df = base_df.copy()
+        module_names = ["Readability", "SignalStrength"]
+
+        for i, result_or_exc in enumerate(results):
+            module_name = module_names[i]
+            if isinstance(result_or_exc, Exception):
+                logger.error(f"Ошибка в модуле '{module_name}' во время быстрого анализа: {result_or_exc}", exc_info=result_or_exc)
+            elif isinstance(result_or_exc, pd.DataFrame):
+                logger.debug(f"Получены результаты от модуля {module_name}. Колонки: {result_or_exc.columns.tolist()}")
+                metrics_cols = [col for col in result_or_exc.columns if col not in ['paragraph_id', 'text']]
+                for col in metrics_cols:
+                    if col in result_or_exc:
+                        final_df[col] = result_or_exc[col]
+        
+        logger.info("Быстрый анализ завершен.")
+        return final_df
+
+    async def calculate_paragraph_metrics(self, session_id: str, paragraph_id: int, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Рассчитывает метрики для одного абзаца без сохранения изменений.
+        Используется для предварительного просмотра метрик при редактировании.
+        БЫСТРЫЙ анализ без семантики для debounced обновлений.
+        """
+        logger.info(f"[Orchestrator] calculate_paragraph_metrics (быстрый): session_id={session_id}, paragraph_id={paragraph_id}")
+        
+        # Проверяем, что сессия существует
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для расчета метрик абзаца.")
+            return None
+        
+        topic = analysis_data["topic"]
+        
+        try:
+            # Запускаем БЫСТРЫЙ анализ для одного абзаца (без семантики)
+            analyzed_df = await self._run_fast_analysis_pipeline([text], topic)
+            
+            if analyzed_df.empty:
+                logger.warning(f"[Orchestrator] Быстрый анализ не вернул результатов для абзаца {paragraph_id}")
+                return None
+            
+            # Форматируем результат как метрики
+            row = analyzed_df.iloc[0]
+            metrics = {}
+            
+            # Извлекаем метрики из результата анализа (без семантики)
+            metric_cols = ['lix', 'smog', 'complexity', 'signal_strength']
+            for col in metric_cols:
+                if col in row.index:
+                    value = row[col]
+                    if pd.isna(value):
+                        metrics[col] = None
+                    elif isinstance(value, (np.generic, pd.Timestamp)):
+                        metrics[col] = value.item() if hasattr(value, 'item') else value
+                    else:
+                        metrics[col] = value
+                else:
+                    metrics[col] = None
+            
+            # Семантические метрики оставляем пустыми для быстрого анализа
+            metrics['semantic_function'] = None
+            
+            logger.info(f"[Orchestrator] Быстрые метрики рассчитаны для абзаца {paragraph_id}")
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"[Orchestrator] Ошибка при быстром расчете метрик абзаца {paragraph_id}: {e}", exc_info=True)
+            return None
+
+    async def calculate_text_metrics(self, session_id: str, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Рассчитывает метрики для всего текста без сохранения изменений.
+        Используется для предварительного просмотра метрик при редактировании.
+        """
+        logger.info(f"[Orchestrator] calculate_text_metrics: session_id={session_id}")
+        
+        # Проверяем, что сессия существует
+        analysis_data = self.session_store.get_analysis(session_id)
+        if not analysis_data:
+            logger.warning(f"[Orchestrator] Сессия {session_id} не найдена для расчета метрик текста.")
+            return None
+        
+        topic = analysis_data["topic"]
+        
+        try:
+            # Разбиваем текст на абзацы
+            paragraphs = split_into_paragraphs(text)
+            
+            if not paragraphs:
+                logger.warning(f"[Orchestrator] Текст не содержит абзацев для анализа")
+                return None
+            
+            # Запускаем полный анализ
+            analyzed_df = await self._run_analysis_pipeline(paragraphs, topic)
+            
+            # Форматируем результат как полный анализ
+            return self._format_analysis_result(analyzed_df, topic, session_id)
+            
+        except Exception as e:
+            logger.error(f"[Orchestrator] Ошибка при расчете метрик текста: {e}", exc_info=True)
+            return None

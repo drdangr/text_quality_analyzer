@@ -11,24 +11,10 @@ interface CardProps {
   maxComplexity: number;
   fontSize: string;
   fontFamily: string;
-  signalMinColor: string;
-  signalMaxColor: string;
   complexityMinColor: string;
   complexityMaxColor: string;
-  isEditing: boolean;
-  editingText: string;
-  onEditingTextChange: (text: string) => void;
-  onStartEditing: () => void;
-  onSave: () => void;
-  onCancel: () => void;
-  isSaving: boolean;
-  isFirst: boolean;
-  isLast: boolean;
-  onMergeDown: () => void;
   onDeleteRequest: (paragraphId: number) => void;
-  onSaveEdit: () => Promise<void>;
   getCardColor: (paragraph: ParagraphData) => string;
-  getTextColor: (paragraph: ParagraphData) => string;
   getHeaderTextColor: (paragraph: ParagraphData) => string;
   getEditingControlsTextColor: (paragraph: ParagraphData) => string;
 }
@@ -51,28 +37,17 @@ const Card: React.FC<CardProps> = ({
   maxComplexity,
   fontSize,
   fontFamily,
-  signalMinColor,
-  signalMaxColor,
   complexityMinColor,
   complexityMaxColor,
-  isEditing,
-  editingText,
-  onEditingTextChange,
-  onStartEditing,
-  onSave,
-  onCancel,
-  isSaving,
-  isFirst,
-  isLast,
-  onMergeDown,
   onDeleteRequest,
-  onSaveEdit,
   getCardColor,
-  getTextColor,
   getHeaderTextColor,
   getEditingControlsTextColor
 }) => {
-  const { session, startEditing, updateEditingText, setEditorFullText } = useAppStore();
+  const { updateParagraph } = useAppStore();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingText, setEditingText] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Функция для линейной интерполяции между двумя значениями
   const lerp = (start: number, end: number, t: number) => {
@@ -90,15 +65,6 @@ const Card: React.FC<CardProps> = ({
 
   const cardContentBgColor = getCardColor(paragraph);
 
-  function getBackgroundColor() { // Оставил function для hoisting если нужно, но тут не критично
-    const startColor = hexToRgb(signalMinColor) || { r: 255, g: 255, b: 255 };
-    const endColor = hexToRgb(signalMaxColor) || { r: 255, g: 219, b: 88 };
-    const r = lerp(startColor.r, endColor.r, normalizedSignal);
-    const g = lerp(startColor.g, endColor.g, normalizedSignal);
-    const b = lerp(startColor.b, endColor.b, normalizedSignal);
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-
   // Функция для определения цвета текста абзаца на основе его сложности
   const getParagraphContentTextColor = () => {
     const startColor = hexToRgb(complexityMinColor) || { r: 0, g: 128, b: 0 };
@@ -109,14 +75,6 @@ const Card: React.FC<CardProps> = ({
     return `rgb(${r}, ${g}, ${b})`;
   };
 
-  // Определяет контрастный цвет (черный/белый) к заданному фону
-  const getContrastBasedTextColor = (bgColor: string) => {
-    const rgb = bgColor.match(/\d+/g)?.map(Number);
-    if (!rgb) return '#333333'; // По умолчанию темный, если фон не распознан
-    const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-    return brightness > 128 ? '#333333' : '#FFFFFF';
-  };
-  
   const getTextAreaTextColor = () => {
     const rgb = cardContentBgColor.match(/\d+/g)?.map(Number);
     if (!rgb) return '#222222'; 
@@ -137,6 +95,54 @@ const Card: React.FC<CardProps> = ({
   const headerTextColor = getHeaderTextColor(paragraph);
   const editingControlsTextColor = getEditingControlsTextColor(paragraph);
   const paragraphTextColor = getParagraphContentTextColor();
+
+  // Начало редактирования
+  const startEditing = () => {
+    setIsEditing(true);
+    setEditingText(paragraph.text);
+  };
+
+  // Сохранение изменений
+  const saveChanges = () => {
+    updateParagraph(paragraph.id, editingText);
+    setIsEditing(false);
+  };
+
+  // Отмена редактирования
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditingText('');
+  };
+
+  // Обработка горячих клавиш
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      saveChanges();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditing();
+    }
+  };
+
+  // Автоматическая высота textarea
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      textareaRef.current.focus();
+    }
+  }, [isEditing, editingText]);
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value;
+    setEditingText(newText);
+
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
 
   const cardWrapperStyle: React.CSSProperties = {
     border: '1px solid #ddd',
@@ -204,84 +210,6 @@ const Card: React.FC<CardProps> = ({
     borderColor: editingControlsTextColor === '#FFFFFF' ? 'rgba(76, 174, 76, 0.7)' : 'rgba(76, 174, 76, 0.5)', 
   };
   
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [isEditing, editingText]);
-
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
-    onEditingTextChange(newText);
-
-    // Обновляем текст в редакторе
-    if (session) {
-      // Создаем копию массива параграфов
-      const updatedParagraphs = [...session.paragraphs];
-      // Обновляем текст текущего параграфа
-      updatedParagraphs[paragraph.id] = {
-        ...updatedParagraphs[paragraph.id],
-        text: newText
-      };
-      
-      // Собираем полный текст
-      const fullText = updatedParagraphs
-        .map(p => p.text)
-        .join('\n\n');
-
-      // Начинаем редактирование, если еще не начали
-      startEditing('text-editor');
-      
-      // Обновляем текст
-      updateEditingText(fullText);
-    }
-
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  };
-
-  const textareaStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px',
-    fontSize: fontSize,
-    fontFamily: fontFamily,
-    lineHeight: '1.5',
-    border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.3)': 'rgba(0,0,0,0.1)'}`,
-    borderRadius: '4px',
-    boxSizing: 'border-box',
-    marginBottom: '10px',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    color: getTextAreaTextColor(), 
-    resize: 'none',
-    overflowY: 'hidden',
-    transition: 'height 0.2s ease-out'
-  };
-
-  const mergeButtonStyle: React.CSSProperties = {
-    position: 'absolute',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    width: '24px',
-    height: '24px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    border: '1px solid #ccc',
-    borderRadius: '50%',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontFamily: fontFamily,
-    color: '#333', // Кнопка слияния обычно на белом фоне между карточками
-    zIndex: 25,
-    boxShadow: '0 0 4px rgba(0,0,0,0.1)'
-  };
-
   const editingControlsStyle: React.CSSProperties = {
     marginTop: '15px',
     paddingTop: '10px',
@@ -318,10 +246,6 @@ const Card: React.FC<CardProps> = ({
   // Это значение должно быть достаточным, чтобы вместить иконку перетаскивания и кнопку X, когда они видимы
   // Иконка перетаскивания (⋮⋮) примерно 10-12px + отступ, кнопка X еще ~15px. Возьмем с запасом.
   const headerInfoPaddingLeft = '30px'; // Фиксированный отступ
-
-  const handleSave = async () => {
-    await onSaveEdit();
-  };
 
   return (
     <div style={{ position: 'relative', marginBottom: '1px' }}>
@@ -421,7 +345,7 @@ const Card: React.FC<CardProps> = ({
 
         <div 
           style={contentContainerStyle} 
-          onClick={!isEditing ? onStartEditing : undefined}
+          onClick={!isEditing ? startEditing : undefined}
           role={!isEditing ? "button" : undefined}
           aria-label={!isEditing ? "Нажмите для редактирования" : undefined}
         >
@@ -431,7 +355,23 @@ const Card: React.FC<CardProps> = ({
                 ref={textareaRef}
                 value={editingText}
                 onChange={handleTextareaChange}
-                style={textareaStyle}
+                onKeyDown={handleKeyDown}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  fontSize: fontSize,
+                  fontFamily: fontFamily,
+                  lineHeight: '1.5',
+                  border: `1px solid ${editingControlsTextColor === '#FFFFFF' ? 'rgba(255,255,255,0.3)': 'rgba(0,0,0,0.1)'}`,
+                  borderRadius: '4px',
+                  boxSizing: 'border-box',
+                  marginBottom: '10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: getTextAreaTextColor(), 
+                  resize: 'none',
+                  overflowY: 'hidden',
+                  transition: 'height 0.2s ease-out'
+                }}
                 aria-label="Редактирование текста абзаца"
                 rows={1}
               />
@@ -441,19 +381,17 @@ const Card: React.FC<CardProps> = ({
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                   <button
-                    onClick={onCancel}
-                    disabled={isSaving}
+                    onClick={cancelEditing}
                     style={buttonStyle}
                   >
                     Отмена
                   </button>
                   <button
-                    onClick={handleSave}
-                    disabled={isSaving} 
-                    style={isSaving ? {...saveButtonStyle, opacity: 0.5, cursor: 'not-allowed'} : saveButtonStyle}
+                    onClick={saveChanges}
+                    style={saveButtonStyle}
                     title={editingText.trim() === '' ? "Сохранение пустого абзаца приведет к его удалению" : "Сохранить изменения"}
                   >
-                    {isSaving ? 'Сохранение...' : 'Сохранить'}
+                    Сохранить
                   </button>
                 </div>
               </div>
@@ -463,16 +401,6 @@ const Card: React.FC<CardProps> = ({
           )}
         </div>
       </div>
-
-      {!isLast && !isEditing && (
-        <div 
-          onClick={onMergeDown}
-          style={{ ...mergeButtonStyle, bottom: '-12px' }}
-          title="Объединить со следующим абзацем"
-        >
-          +
-        </div>
-      )}
     </div>
   );
 };
