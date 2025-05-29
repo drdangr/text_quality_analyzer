@@ -141,3 +141,18 @@ button:focus-visible {
 .card-jump {
   animation: card-jump 0.6s ease;
 }
+
+/* Monaco Editor стили */
+.monaco-container .monaco-editor .editor-scrollable {
+  overflow-x: hidden !important;
+}
+
+.monaco-container .monaco-editor {
+  border-radius: 4px;
+}
+
+/* Безопасные стили для предотвращения проблем с layout */
+.monaco-container {
+  position: relative;
+  overflow: hidden;
+}

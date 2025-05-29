@@ -349,89 +349,184 @@ export const useDocumentStore = create<AppState>()(
       },
 
       processMetricsQueue: async () => {
-        const state = get();
-        const queue = state.metricsQueue;
-
-        if (queue.localUpdates.size === 0 && queue.contextualUpdates.size === 0) {
-          return;
-        }
-
-        console.log('🔄 Обработка очереди метрик:', {
-          localUpdates: queue.localUpdates.size,
-          contextualUpdates: queue.contextualUpdates.size
-        });
-
-        // Помечаем чанки как обновляющиеся
-        const allUpdateIds = new Set([...queue.localUpdates, ...queue.contextualUpdates]);
-        let updatedChunks = state.document!.chunks;
-        
-        allUpdateIds.forEach(chunkId => {
-          updatedChunks = markChunkAsUpdating(updatedChunks, chunkId);
-        });
-
-        set({
-          document: {
-            ...state.document!,
-            chunks: updatedChunks
-          }
-        });
-
-        // Очищаем очередь сразу чтобы избежать повторной обработки
-        set({
-          metricsQueue: {
-            localUpdates: new Set(),
-            contextualUpdates: new Set()
-          }
-        });
-
-        // Реальный вызов API для анализа метрик
         try {
-          // Прямой импорт API
-          const { calculateParagraphMetrics } = await import('../api/index');
+          const state = get();
+          const queue = state.metricsQueue;
+
+          if (queue.localUpdates.size === 0 && queue.contextualUpdates.size === 0) {
+            return;
+          }
+
+          console.log('🔄 Обработка очереди метрик:', {
+            localUpdates: queue.localUpdates.size,
+            contextualUpdates: queue.contextualUpdates.size
+          });
+
+          // Помечаем чанки как обновляющиеся
+          const allUpdateIds = new Set([...queue.localUpdates, ...queue.contextualUpdates]);
+          let updatedChunks = state.document!.chunks;
           
-          // Получаем session_id из documentStore или создаем временный
-          const sessionId = state.document!.metadata.session_id;
-          
-          // Анализируем каждый чанк
-          for (const chunkId of allUpdateIds) {
-            const chunkText = get().getChunkText(chunkId);
-            if (chunkText.trim()) {
-              console.log(`🔄 Анализ метрик чанка ${chunkId}:`, chunkText.substring(0, 50) + '...');
-              
+          allUpdateIds.forEach(chunkId => {
+            try {
+              updatedChunks = markChunkAsUpdating(updatedChunks, chunkId);
+            } catch (error) {
+              console.warn(`Ошибка при пометке чанка ${chunkId} как обновляющийся:`, error);
+            }
+          });
+
+          set({
+            document: {
+              ...state.document!,
+              chunks: updatedChunks
+            }
+          });
+
+          // Очищаем очередь сразу чтобы избежать повторной обработки
+          set({
+            metricsQueue: {
+              localUpdates: new Set(),
+              contextualUpdates: new Set()
+            }
+          });
+
+          // Реальный вызов API для анализа метрик с полной обработкой ошибок
+          try {
+            // Прямой импорт API с обработкой ошибок импорта
+            let calculateParagraphMetrics;
+            try {
+              const apiModule = await import('../api/index');
+              calculateParagraphMetrics = apiModule.calculateParagraphMetrics;
+            } catch (importError) {
+              console.warn('Ошибка импорта API модуля:', importError);
+              // Снимаем флаги обновления для всех чанков
+              allUpdateIds.forEach(chunkId => {
+                try {
+                  get().updateChunkMetrics(chunkId, { isUpdating: false });
+                } catch (updateError) {
+                  console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, updateError);
+                }
+              });
+              return;
+            }
+
+            // Проверяем, что функция импортировалась корректно
+            if (!calculateParagraphMetrics || typeof calculateParagraphMetrics !== 'function') {
+              console.warn('calculateParagraphMetrics не найдена или не является функцией');
+              allUpdateIds.forEach(chunkId => {
+                try {
+                  get().updateChunkMetrics(chunkId, { isUpdating: false });
+                } catch (updateError) {
+                  console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, updateError);
+                }
+              });
+              return;
+            }
+            
+            // Получаем session_id из documentStore или создаем временный
+            const currentState = get();
+            if (!currentState.document || !currentState.document.metadata) {
+              console.warn('Нет документа или метаданных для обработки метрик');
+              return;
+            }
+            
+            const sessionId = currentState.document.metadata.session_id;
+            
+            // Анализируем каждый чанк с индивидуальной обработкой ошибок
+            for (const chunkId of allUpdateIds) {
               try {
-                // Прямой вызов API для расчета метрик
-                const chunkIndex = state.document!.chunks.findIndex(c => c.id === chunkId);
-                if (chunkIndex >= 0) {
-                  const metrics = await calculateParagraphMetrics(
+                const chunkText = get().getChunkText(chunkId);
+                if (!chunkText || !chunkText.trim()) {
+                  // Снимаем флаг обновления для пустых чанков
+                  try {
+                    get().updateChunkMetrics(chunkId, { isUpdating: false });
+                  } catch (updateError) {
+                    console.warn(`Ошибка снятия флага обновления для пустого чанка ${chunkId}:`, updateError);
+                  }
+                  continue;
+                }
+                
+                console.log(`🔄 Анализ метрик чанка ${chunkId}:`, chunkText.substring(0, 50) + '...');
+                
+                try {
+                  // Прямой вызов API для расчета метрик
+                  const currentDocument = get().document;
+                  if (!currentDocument || !currentDocument.chunks) {
+                    console.warn(`Документ исчез во время обработки чанка ${chunkId}`);
+                    continue;
+                  }
+                  
+                  const chunkIndex = currentDocument.chunks.findIndex(c => c.id === chunkId);
+                  if (chunkIndex < 0) {
+                    console.warn(`Чанк ${chunkId} не найден в документе`);
+                    continue;
+                  }
+                  
+                  // Вызов API с timeout для предотвращения зависания
+                  const metricsPromise = calculateParagraphMetrics(
                     sessionId,
                     chunkIndex + 1, // API ожидает 1-based индекс
                     chunkText
                   );
                   
-                  // Обновляем метрики напрямую в documentStore
-                  get().updateChunkMetrics(chunkId, {
-                    signal_strength: metrics.signal_strength ?? undefined,
-                    complexity: metrics.complexity ?? undefined,
-                    semantic_function: metrics.semantic_function ?? undefined,
-                    isStale: false,
-                    isUpdating: false
+                  // Добавляем timeout
+                  const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('API timeout')), 10000); // 10 секунд timeout
                   });
                   
-                  console.log(`✅ Метрики чанка ${chunkId} обновлены:`, metrics);
+                  const metrics = await Promise.race([metricsPromise, timeoutPromise]);
+                  
+                  // Обновляем метрики напрямую в documentStore
+                  try {
+                    get().updateChunkMetrics(chunkId, {
+                      signal_strength: (metrics as any)?.signal_strength ?? undefined,
+                      complexity: (metrics as any)?.complexity ?? undefined,
+                      semantic_function: (metrics as any)?.semantic_function ?? undefined,
+                      isStale: false,
+                      isUpdating: false
+                    });
+                    
+                    console.log(`✅ Метрики чанка ${chunkId} обновлены:`, metrics);
+                  } catch (updateError) {
+                    console.warn(`Ошибка обновления метрик для чанка ${chunkId}:`, updateError);
+                    // Снимаем флаг обновления при ошибке
+                    try {
+                      get().updateChunkMetrics(chunkId, { isUpdating: false });
+                    } catch (flagError) {
+                      console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, flagError);
+                    }
+                  }
+                } catch (apiError) {
+                  console.warn(`Ошибка API для чанка ${chunkId}:`, apiError);
+                  // Снимаем флаг обновления при ошибке API
+                  try {
+                    get().updateChunkMetrics(chunkId, { isUpdating: false });
+                  } catch (flagError) {
+                    console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, flagError);
+                  }
                 }
-              } catch (error) {
-                // console.error(`❌ Ошибка анализа метрик чанка ${chunkId}:`, error);
-                // Снимаем флаг обновления при ошибке
-                get().updateChunkMetrics(chunkId, { isUpdating: false });
+              } catch (chunkError) {
+                console.warn(`Общая ошибка обработки чанка ${chunkId}:`, chunkError);
+                // Снимаем флаг обновления при любой ошибке
+                try {
+                  get().updateChunkMetrics(chunkId, { isUpdating: false });
+                } catch (flagError) {
+                  console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, flagError);
+                }
               }
             }
+          } catch (apiError) {
+            console.warn('Критическая ошибка при анализе метрик:', apiError);
+            // Снимаем флаги обновления для всех чанков
+            allUpdateIds.forEach(chunkId => {
+              try {
+                get().updateChunkMetrics(chunkId, { isUpdating: false });
+              } catch (flagError) {
+                console.warn(`Ошибка снятия флага обновления для чанка ${chunkId}:`, flagError);
+              }
+            });
           }
-        } catch (error) {
-          // console.error('❌ Критическая ошибка при анализе метрик:', error);
-          // Снимаем флаги обновления для всех чанков
-          allUpdateIds.forEach(chunkId => {
-            get().updateChunkMetrics(chunkId, { isUpdating: false });
-          });
+        } catch (queueError) {
+          console.warn('Критическая ошибка в processMetricsQueue:', queueError);
         }
       },
 

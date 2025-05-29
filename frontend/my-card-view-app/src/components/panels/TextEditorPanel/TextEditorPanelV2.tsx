@@ -277,17 +277,47 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
         }}>
           <button
             onClick={() => {
-              console.log('🔬 БЫСТРАЯ ДИАГНОСТИКА:')
-              console.log('📝 Текст:', JSON.stringify(currentText))
-              console.log('📏 Длина:', currentText.length)
-              for (let i = 0; i < Math.min(currentText.length, 50); i++) {
-                const char = currentText[i]
-                const code = char.charCodeAt(0)
-                const name = code === 10 ? 'LF' : code === 13 ? 'CR' : code === 32 ? 'SPACE' : char
-                console.log(`  [${i}]: "${char}" → ${code} (${name})`)
-              }
-              if (currentText.length > 50) {
-                console.log(`  ... и еще ${currentText.length - 50} символов`)
+              try {
+                console.log('🔬 БЫСТРАЯ ДИАГНОСТИКА:')
+                
+                // Безопасная проверка currentText
+                if (!currentText) {
+                  console.log('📝 Текст: пуст или не определен')
+                  console.log('📏 Длина: 0')
+                  return
+                }
+                
+                // Безопасное логирование текста
+                try {
+                  console.log('📝 Текст:', typeof currentText === 'string' ? JSON.stringify(currentText.substring(0, 100)) : 'Не строка')
+                } catch (err) {
+                  console.log('📝 Текст: [Ошибка при сериализации]')
+                }
+                
+                console.log('📏 Длина:', currentText.length)
+                
+                // Безопасная итерация по символам
+                const maxChars = Math.min(currentText.length, 50)
+                for (let i = 0; i < maxChars; i++) {
+                  try {
+                    const char = currentText[i]
+                    if (char !== undefined && char !== null) {
+                      const code = char.charCodeAt(0)
+                      const name = code === 10 ? 'LF' : code === 13 ? 'CR' : code === 32 ? 'SPACE' : char
+                      console.log(`  [${i}]: "${char}" → ${code} (${name})`)
+                    } else {
+                      console.log(`  [${i}]: undefined или null символ`)
+                    }
+                  } catch (charErr) {
+                    console.log(`  [${i}]: ошибка при обработке символа`)
+                  }
+                }
+                
+                if (currentText.length > 50) {
+                  console.log(`  ... и еще ${currentText.length - 50} символов`)
+                }
+              } catch (error) {
+                console.log('❌ Ошибка в диагностике:', error)
               }
             }}
             style={{

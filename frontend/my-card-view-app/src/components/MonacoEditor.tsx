@@ -30,7 +30,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     fontSize: 14,
     lineNumbers: 'off',
     wordWrap: 'on',
-    automaticLayout: true,
+    automaticLayout: false, // Отключаем для предотвращения проблем с layout
     // Отключаем автодополнение и подсказки
     suggestOnTriggerCharacters: false,
     acceptSuggestionOnEnter: 'off',
@@ -51,7 +51,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     ...options
   };
 
-  // Простой обработчик изменений без детального отслеживания
+  // Безопасный обработчик изменений
   const handleChange = (newValue: string | undefined) => {
     if (onChange && newValue !== undefined) {
       try {
@@ -62,23 +62,49 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   };
 
+  // Безопасный обработчик монтирования
   const handleEditorDidMount: OnMount = (editor, monaco) => {
-    editorRef.current = editor;
+    try {
+      editorRef.current = editor;
+      
+      // Устанавливаем размеры вручную для предотвращения проблем с layout
+      setTimeout(() => {
+        try {
+          if (editorRef.current) {
+            editorRef.current.layout();
+          }
+        } catch (layoutError) {
+          console.warn('Ошибка при установке layout Monaco Editor:', layoutError);
+        }
+      }, 100);
+    } catch (mountError) {
+      console.warn('Ошибка при монтировании Monaco Editor:', mountError);
+    }
   };
 
+  // Безопасная очистка при размонтировании
+  useEffect(() => {
+    return () => {
+      try {
+        if (editorRef.current) {
+          editorRef.current.dispose();
+          editorRef.current = null;
+        }
+      } catch (disposeError) {
+        console.warn('Ошибка при очистке Monaco Editor:', disposeError);
+      }
+    };
+  }, []);
+
   return (
-    <div style={{
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
-      <style>
-        {`
-          .monaco-editor .editor-scrollable {
-            overflow-x: hidden !important;
-          }
-        `}
-      </style>
+    <div 
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+      className="monaco-container"
+    >
       <div style={{ flex: 1, minHeight: 0 }}>
         <Editor
           height="100%"
