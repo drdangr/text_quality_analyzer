@@ -494,6 +494,16 @@ export const useDocumentStore = create<AppState>()(
                 text: get().getChunkText(chunkId)
               })).filter(chunk => chunk.text && chunk.text.trim());
 
+              console.log('🔍 ОТЛАДКА: тексты чанков для локального анализа:', {
+                totalChunks: localChunks.length,
+                chunks: localChunks.map(c => ({
+                  id: c.id.slice(0, 8),
+                  textLength: c.text.length,
+                  textPreview: c.text.substring(0, 100) + (c.text.length > 100 ? '...' : ''),
+                  fullText: c.text
+                }))
+              });
+
               if (localChunks.length > 0) {
                 console.log(`🔄 Пакетный анализ локальных метрик для ${localChunks.length} чанков`);
 
@@ -656,6 +666,16 @@ export const useDocumentStore = create<AppState>()(
                     id: chunkId,
                     text: get().getChunkText(chunkId)
                   })).filter(chunk => chunk.text && chunk.text.trim());
+
+                  console.log('🔍 ОТЛАДКА: тексты чанков для семантического анализа:', {
+                    totalChunks: semanticChunks.length,
+                    chunks: semanticChunks.map(c => ({
+                      id: c.id.slice(0, 8),
+                      textLength: c.text.length,
+                      textPreview: c.text.substring(0, 100) + (c.text.length > 100 ? '...' : ''),
+                      fullText: c.text
+                    }))
+                  });
 
                   if (semanticChunks.length > 0) {
                     try {

@@ -155,11 +155,68 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
     return foundChunk;
   };
 
-  // Функция для определения, нужно ли запускать семантический анализ
+  // Функция для определения, нужно ли запускать ЛОКАЛЬНЫЙ анализ (signal_strength, complexity)
+  const shouldTriggerLocalAnalysis = (newText: string, changeInfo: ChangeInfo): boolean => {
+    const addedText = changeInfo.newText;
+    const removedText = changeInfo.oldText;
+    
+    console.log('🏃‍♂️ shouldTriggerLocalAnalysis проверка:', {
+      hasAddedText: !!addedText,
+      hasRemovedText: !!removedText,
+      addedLength: addedText?.length || 0,
+      removedLength: removedText?.length || 0,
+      addedText: JSON.stringify(addedText),
+      removedText: JSON.stringify(removedText),
+      changeStart: changeInfo.start,
+      changeEnd: changeInfo.end
+    });
+    
+    // Локальные метрики пересчитываем при ЛЮБОМ значимом изменении текста:
+    
+    // 1. УДАЛЕНИЕ (Backspace/Delete) - любое удаление символов
+    const hasDeleted = removedText && removedText.length > 0;
+    
+    // 2. ДОБАВЛЕНИЕ СИМВОЛОВ - буквы, цифры, знаки препинания
+    const hasAddedMeaningfulText = addedText && /[a-zA-Zа-яёА-ЯЁ0-9.,!?;:\-_()[\]{}'"«»—–…]/.test(addedText);
+    
+    // 3. ENTER - создание новых строк
+    const hasAddedNewlines = addedText && /[\n\r]/.test(addedText);
+    
+    // 4. ПРОБЕЛЫ (если больше одного)
+    const hasAddedMultipleSpaces = addedText && addedText.length > 1 && /\s/.test(addedText);
+    
+    // 5. ДЛИННЫЕ ИЗМЕНЕНИЯ (вставка/удаление больших блоков)
+    const hasLargeChange = 
+      (addedText && addedText.length > 2) || 
+      (removedText && removedText.length > 2);
+    
+    const significantChange = 
+      hasDeleted ||
+      hasAddedMeaningfulText ||
+      hasAddedNewlines ||
+      hasAddedMultipleSpaces ||
+      hasLargeChange;
+    
+    console.log('🏃‍♂️ shouldTriggerLocalAnalysis результат:', {
+      significantChange: !!significantChange,
+      reasons: {
+        hasDeleted,
+        hasAddedMeaningfulText,
+        hasAddedNewlines,
+        hasAddedMultipleSpaces,
+        hasLargeChange
+      },
+      finalDecision: significantChange ? 'ЗАПУСКАЕМ локальный анализ' : 'ПРОПУСКАЕМ локальный анализ'
+    });
+    
+    return !!significantChange;
+  };
+
+  // Функция для определения, нужно ли запускать СЕМАНТИЧЕСКИЙ анализ (semantic_function)
   const shouldTriggerSemanticAnalysis = (newText: string, changeInfo: ChangeInfo): boolean => {
     const addedText = changeInfo.newText;
     
-    console.log('🤔 shouldTriggerSemanticAnalysis проверка:', {
+    console.log('🧠 shouldTriggerSemanticAnalysis проверка:', {
       hasAddedText: !!addedText,
       addedText: JSON.stringify(addedText),
       addedTextLength: addedText?.length || 0,
@@ -177,11 +234,11 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
       return false;
     }
     
-    // Запускаем анализ при вводе пробела или знаков препинания
-    const triggerChars = [' ', '.', '!', '?', ',', ';', ':', '\n'];
+    // Семантический анализ запускаем только при завершении мысли/предложения
+    const triggerChars = [' ', '.', '!', '?', ',', ';', ':', '\n', '\r\n'];
     const hasTriggerChar = triggerChars.some(char => addedText.includes(char));
     
-    console.log('🔍 shouldTriggerSemanticAnalysis результат:', {
+    console.log('🧠 shouldTriggerSemanticAnalysis результат:', {
       triggerChars,
       addedText: JSON.stringify(addedText),
       hasTriggerChar,
@@ -242,9 +299,10 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
       // Мгновенно обновляем документ
       updateText(newText, textChangeInfo);
       
-      // Проверяем, нужно ли запускать семантический анализ
-      console.log('🔍 ПРОВЕРКА семантического анализа:', {
-        willCheck: true,
+      // Проверяем триггеры для ЛОКАЛЬНОГО и СЕМАНТИЧЕСКОГО анализа НЕЗАВИСИМО
+      console.log('🔍 ПРОВЕРКА триггеров анализа:', {
+        willCheckLocal: true,
+        willCheckSemantic: true,
         textChangeInfo: {
           start: textChangeInfo.start,
           end: textChangeInfo.end,
@@ -253,16 +311,19 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
         }
       });
       
-      const shouldTrigger = shouldTriggerSemanticAnalysis(newText, textChangeInfo);
+      const shouldTriggerLocal = shouldTriggerLocalAnalysis(newText, textChangeInfo);
+      const shouldTriggerSemantic = shouldTriggerSemanticAnalysis(newText, textChangeInfo);
       
-      console.log('🎯 РЕЗУЛЬТАТ проверки shouldTriggerSemanticAnalysis:', {
-        shouldTrigger,
+      console.log('🎯 РЕЗУЛЬТАТЫ проверки триггеров:', {
+        shouldTriggerLocal,
+        shouldTriggerSemantic,
         textChangeInfo,
         newText: newText.length + ' символов'
       });
       
-      if (shouldTrigger) {
-        console.log('✅ ТРИГГЕР СРАБОТАЛ - запускаем семантический анализ');
+      // Находим чанк для анализа (только если нужен хотя бы один из анализов)
+      if (shouldTriggerLocal || shouldTriggerSemantic) {
+        console.log('✅ ХОТЯ БЫ ОДИН ТРИГГЕР СРАБОТАЛ - ищем чанк');
         
         // Используем позицию курсора для более точного определения чанка
         const searchPosition = cursorPosition !== undefined ? cursorPosition : textChangeInfo.start;
@@ -275,24 +336,34 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
         const editedChunk = findChunkAtPosition(searchPosition);
         
         if (editedChunk) {
-          console.log('🎯 ЧАНК НАЙДЕН - запускаем анализ:', {
+          console.log('🎯 ЧАНК НАЙДЕН - запускаем анализы:', {
             chunkId: editedChunk.id.slice(0, 8),
             searchPosition,
             cursorPosition,
             changeStart: textChangeInfo.start,
-            trigger: textChangeInfo.newText
+            trigger: textChangeInfo.newText,
+            willRunLocal: shouldTriggerLocal,
+            willRunSemantic: shouldTriggerSemantic
           });
           
-          // Запускаем анализ только для этого чанка
-          console.log('📋 ВЫЗЫВАЕМ queueMetricsUpdate...');
+          // НЕЗАВИСИМЫЕ ВЫЗОВЫ АНАЛИЗОВ
           
-          // СНАЧАЛА локальный анализ (signal_strength, complexity)
-          queueMetricsUpdate(editedChunk.id, 'local');
-          console.log('✅ queueMetricsUpdate LOCAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          if (shouldTriggerLocal) {
+            console.log('🏃‍♂️ ЛОКАЛЬНЫЙ АНАЛИЗ - вызываем queueMetricsUpdate...');
+            queueMetricsUpdate(editedChunk.id, 'local');
+            console.log('✅ queueMetricsUpdate LOCAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          } else {
+            console.log('❌ ЛОКАЛЬНЫЙ АНАЛИЗ ПРОПУЩЕН - триггер не сработал');
+          }
           
-          // ЗАТЕМ семантический анализ (semantic_function)  
-          queueMetricsUpdate(editedChunk.id, 'contextual');
-          console.log('✅ queueMetricsUpdate CONTEXTUAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          if (shouldTriggerSemantic) {
+            console.log('🧠 СЕМАНТИЧЕСКИЙ АНАЛИЗ - вызываем queueMetricsUpdate...');
+            queueMetricsUpdate(editedChunk.id, 'contextual');
+            console.log('✅ queueMetricsUpdate CONTEXTUAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          } else {
+            console.log('❌ СЕМАНТИЧЕСКИЙ АНАЛИЗ ПРОПУЩЕН - триггер не сработал');
+          }
+          
         } else {
           console.log('❌ ЧАНК НЕ НАЙДЕН:', {
             searchPosition,
@@ -302,7 +373,7 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
           });
         }
       } else {
-        console.log('❌ ТРИГГЕР НЕ СРАБОТАЛ - семантический анализ НЕ запускается');
+        console.log('❌ НИ ОДИН ТРИГГЕР НЕ СРАБОТАЛ - анализ НЕ запускается');
       }
     } else {
       console.log('⏭️ Пропускаем обновление: пустой текст');
