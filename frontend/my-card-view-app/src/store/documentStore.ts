@@ -174,17 +174,19 @@ export const useDocumentStore = create<AppState>()(
           loading: false 
         });
 
-        // Запускаем ТОЛЬКО глобальный семантический анализ для всех чанков
-        console.log('🌍 Запускаем ГЛОБАЛЬНЫЙ анализ для всех чанков после initializeDocument');
+        // Запускаем ПОЛНЫЙ анализ для всех чанков (локальный + семантический)
+        console.log('🎯 Запускаем ПОЛНЫЙ анализ для всех чанков после initializeDocument');
         chunks.forEach(chunk => {
-          // Только contextual (семантический) анализ, БЕЗ локального!
+          // СНАЧАЛА локальный анализ (signal_strength, complexity)
+          get().queueMetricsUpdate(chunk.id, 'local');
+          // ЗАТЕМ семантический анализ (semantic_function)
           get().queueMetricsUpdate(chunk.id, 'contextual');
         });
 
         console.log('✅ Документ инициализирован:', { 
           chunksCount: chunks.length,
           sessionId: document.metadata.session_id,
-          analysisType: 'ТОЛЬКО семантический (глобальный)'
+          analysisType: 'ПОЛНЫЙ анализ (локальный + семантический)'
         });
       },
 
@@ -326,71 +328,19 @@ export const useDocumentStore = create<AppState>()(
         const state = get();
         if (!state.document) return;
 
-        console.log('🔄 updateChunkMetrics НАЧАЛО - ТОЧНЫЕ ПАРАМЕТРЫ:', { 
-          chunkId: chunkId.slice(0, 8),
-          metrics,
-          semantic_function_param: metrics.semantic_function,
-          semantic_function_type: typeof metrics.semantic_function,
-          semantic_function_defined: metrics.semantic_function !== undefined,
-          semantic_function_not_null: metrics.semantic_function !== null,
-          allMetricsKeys: Object.keys(metrics),
-          allMetricsValues: Object.values(metrics),
-          stringified: JSON.stringify(metrics)
-        });
-
-        // Найдем старые метрики для сравнения
-        const oldChunk = state.document.chunks.find(c => c.id === chunkId);
-        console.log('📊 Старые метрики чанка:', {
-          chunkId: chunkId.slice(0, 8),
-          oldMetrics: oldChunk?.metrics,
-          oldSemanticFunction: oldChunk?.metrics.semantic_function
-        });
-
         const updatedChunks = updateChunkMetrics(
           state.document.chunks,
           chunkId,
           metrics
         );
 
-        // Найдем обновленный чанк для проверки
-        const updatedChunk = updatedChunks.find(c => c.id === chunkId);
-        console.log('✅ updateChunkMetrics РЕЗУЛЬТАТ:', {
-          chunkId: chunkId.slice(0, 8),
-          oldMetrics: state.document.chunks.find(c => c.id === chunkId)?.metrics,
-          newMetrics: updatedChunk?.metrics,
-          semantic_function_updated: updatedChunk?.metrics.semantic_function,
-          isStoreUpdated: state.document.chunks !== updatedChunks
-        });
-
-        // Обновляем store
         const newDocument = {
           ...state.document,
           chunks: updatedChunks,
           version: state.document.version + 1
         };
-        
-        console.log('📄 Обновляем документ в store:', {
-          oldVersion: state.document.version,
-          newVersion: newDocument.version,
-          chunksChanged: state.document.chunks !== newDocument.chunks
-        });
 
         set({ document: newDocument });
-        
-        console.log('🔄 ПРОВЕРКА: set() выполнен, проверяем состояние store...');
-        
-        // НЕМЕДЛЕННАЯ ПРОВЕРКА состояния store
-        setTimeout(() => {
-          const freshState = get();
-          const freshChunk = freshState.document?.chunks.find(c => c.id === chunkId);
-          console.log('🔍 НЕМЕДЛЕННАЯ ПРОВЕРКА store (через setTimeout 0):', {
-            chunkId: chunkId.slice(0, 8),
-            freshSemanticFunction: freshChunk?.metrics.semantic_function,
-            freshIsUpdating: freshChunk?.metrics.isUpdating,
-            storeIsUpdated: !!freshChunk?.metrics.semantic_function,
-            timestamp: new Date().toISOString()
-          });
-        }, 0);
       },
 
       queueMetricsUpdate: (chunkId: string, type: 'local' | 'contextual') => {
@@ -436,15 +386,7 @@ export const useDocumentStore = create<AppState>()(
           const state = get();
           const queue = state.metricsQueue;
 
-          console.log('🔄 processMetricsQueue ВЫЗВАНА:', {
-            localUpdates: Array.from(queue.localUpdates),
-            contextualUpdates: Array.from(queue.contextualUpdates),
-            hasDocument: !!state.document,
-            timestamp: new Date().toISOString()
-          });
-
           if (queue.localUpdates.size === 0 && queue.contextualUpdates.size === 0) {
-            console.log('⏭️ processMetricsQueue: пустая очередь, выходим');
             return;
           }
 
@@ -743,30 +685,6 @@ export const useDocumentStore = create<AppState>()(
                               const chunkId = result.chunk_id;
                               const metrics = result.metrics;
                               
-                              console.log('📦 ОБРАБОТКА одного семантического результата:', {
-                                chunkId: chunkId,
-                                rawResult: result,
-                                rawMetrics: metrics,
-                                semantic_function: metrics?.semantic_function,
-                                semantic_function_type: typeof metrics?.semantic_function,
-                                hasSemanticFunction: !!metrics?.semantic_function,
-                                metricsKeys: Object.keys(metrics || {}),
-                                // ОТЛАДКА ПЕРЕДАЧИ В updateChunkMetrics
-                                willPass: {
-                                  semantic_function: metrics.semantic_function,
-                                  direct_value: metrics.semantic_function
-                                }
-                              });
-                              
-                              // Проверяем что semantic_function действительно есть
-                              if (!metrics?.semantic_function) {
-                                console.warn('⚠️ ВНИМАНИЕ: semantic_function отсутствует в metrics!', {
-                                  chunkId,
-                                  metrics,
-                                  result
-                                });
-                              }
-                              
                               get().updateChunkMetrics(chunkId, {
                                 semantic_function: metrics.semantic_function,
                                 isStale: false,
@@ -775,10 +693,6 @@ export const useDocumentStore = create<AppState>()(
                               
                               processedChunks++;
                               get().updateSemanticProgress(processedChunks);
-                              
-                              console.log(`✅ Семантические метрики чанка ${chunkId} переданы в updateChunkMetrics:`, {
-                                semantic_function: metrics?.semantic_function
-                              });
                             } catch (updateError) {
                               console.warn(`Ошибка обновления семантических метрик для чанка ${result.chunk_id}:`, updateError);
                               try {
@@ -806,28 +720,8 @@ export const useDocumentStore = create<AppState>()(
                               topic
                             ) as any;
                             
-                            console.log('📦 ИНДИВИДУАЛЬНЫЙ семантический результат с API:', {
-                              chunkId: chunk.id,
-                              rawMetrics: metrics,
-                              semantic_function: metrics?.semantic_function,
-                              semantic_function_type: typeof metrics?.semantic_function,
-                              hasSemanticFunction: !!metrics?.semantic_function,
-                              metricsKeys: Object.keys(metrics || {}),
-                              // ОТЛАДКА: показываем разницу между metrics и result
-                              fullResult: metrics,
-                              resultMetrics: metrics.metrics,
-                              correctSemanticFunction: metrics.metrics?.semantic_function
-                            });
-                            
                             // Проверяем что semantic_function действительно есть
                             const actualMetrics = metrics.metrics || {};
-                            if (!actualMetrics.semantic_function) {
-                              console.warn('⚠️ ВНИМАНИЕ: semantic_function отсутствует в индивидуальном результате!', {
-                                chunkId: chunk.id,
-                                metrics: actualMetrics,
-                                fullResult: metrics
-                              });
-                            }
                             
                             // Обновляем метрики
                             try {
@@ -839,10 +733,6 @@ export const useDocumentStore = create<AppState>()(
                               
                               processedChunks++;
                               get().updateSemanticProgress(processedChunks);
-                              
-                              console.log(`✅ Индивидуальные семантические метрики чанка ${chunk.id} переданы в updateChunkMetrics:`, {
-                                semantic_function: metrics?.semantic_function
-                              });
                             } catch (updateError) {
                               console.warn(`Ошибка обновления семантических метрик для чанка ${chunk.id}:`, updateError);
                               try {

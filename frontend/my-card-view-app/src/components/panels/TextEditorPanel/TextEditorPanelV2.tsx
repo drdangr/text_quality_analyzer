@@ -285,8 +285,14 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
           
           // Запускаем анализ только для этого чанка
           console.log('📋 ВЫЗЫВАЕМ queueMetricsUpdate...');
+          
+          // СНАЧАЛА локальный анализ (signal_strength, complexity)
+          queueMetricsUpdate(editedChunk.id, 'local');
+          console.log('✅ queueMetricsUpdate LOCAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          
+          // ЗАТЕМ семантический анализ (semantic_function)  
           queueMetricsUpdate(editedChunk.id, 'contextual');
-          console.log('✅ queueMetricsUpdate ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+          console.log('✅ queueMetricsUpdate CONTEXTUAL ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
         } else {
           console.log('❌ ЧАНК НЕ НАЙДЕН:', {
             searchPosition,

@@ -494,31 +494,7 @@ export async function getChunkSemantic(
 
   await handleResponseError(response);
   
-  // Добавляем отладку сырого ответа
-  const rawResponse = await response.text();
-  console.log('📡 getChunkSemantic СЫРОЙ ответ от сервера:', {
-    chunkId: chunkId,
-    rawResponse: rawResponse.substring(0, 300) + (rawResponse.length > 300 ? '...' : ''),
-    responseLength: rawResponse.length
-  });
-  
-  let parsedResponse;
-  try {
-    parsedResponse = JSON.parse(rawResponse);
-    console.log('📡 getChunkSemantic ПАРСИНГ JSON:', {
-      chunkId: chunkId,
-      hasMetrics: !!parsedResponse.metrics,
-      metrics: parsedResponse.metrics,
-      semantic_function: parsedResponse.metrics?.semantic_function,
-      semantic_function_type: typeof parsedResponse.metrics?.semantic_function,
-      structure: Object.keys(parsedResponse)
-    });
-  } catch (parseError) {
-    console.error('❌ getChunkSemantic ошибка парсинга JSON:', parseError);
-    throw new Error(`Ошибка парсинга JSON ответа: ${parseError}`);
-  }
-  
-  return parsedResponse as ChunkSemanticResponse;
+  return response.json() as Promise<ChunkSemanticResponse>;
 }
 
 // Функция для пакетного получения семантических метрик чанков
@@ -544,39 +520,5 @@ export async function getBatchChunkSemantic(
 
   await handleResponseError(response);
   
-  // Добавляем отладку сырого ответа
-  const rawResponse = await response.text();
-  console.log('📡 getBatchChunkSemantic СЫРОЙ ответ от сервера:', {
-    rawResponse: rawResponse.substring(0, 500) + (rawResponse.length > 500 ? '...' : ''),
-    responseLength: rawResponse.length
-  });
-  
-  let parsedResponse;
-  try {
-    parsedResponse = JSON.parse(rawResponse);
-    console.log('📡 getBatchChunkSemantic ПАРСИНГ JSON:', {
-      hasResults: !!parsedResponse.results,
-      resultsCount: parsedResponse.results?.length || 0,
-      firstResult: parsedResponse.results?.[0] || null,
-      structure: Object.keys(parsedResponse)
-    });
-    
-    // Проверяем каждый результат
-    if (parsedResponse.results) {
-      parsedResponse.results.forEach((result: any, index: number) => {
-        console.log(`📦 getBatchChunkSemantic результат ${index + 1}:`, {
-          chunk_id: result.chunk_id,
-          hasMetrics: !!result.metrics,
-          metrics: result.metrics,
-          semantic_function: result.metrics?.semantic_function,
-          semantic_function_type: typeof result.metrics?.semantic_function
-        });
-      });
-    }
-  } catch (parseError) {
-    console.error('❌ getBatchChunkSemantic ошибка парсинга JSON:', parseError);
-    throw new Error(`Ошибка парсинга JSON ответа: ${parseError}`);
-  }
-  
-  return parsedResponse as BatchChunkSemanticResponse;
+  return response.json() as Promise<BatchChunkSemanticResponse>;
 } 

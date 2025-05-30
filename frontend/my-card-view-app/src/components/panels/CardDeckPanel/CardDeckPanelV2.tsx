@@ -189,22 +189,6 @@ const ChunkCard: React.FC<{
           </div>
           
           {(() => {
-            // Добавляем отладку для semantic_function
-            console.log(`🃏 РЕНДЕР карточки чанка #${index + 1}:`, {
-              chunkId: chunk.id.slice(0, 8),
-              hasSemanticFunction: !!chunk.metrics.semantic_function,
-              semantic_function: chunk.metrics.semantic_function,
-              semantic_function_type: typeof chunk.metrics.semantic_function,
-              allMetrics: chunk.metrics,
-              isUpdating: chunk.metrics.isUpdating,
-              isStale: chunk.metrics.isStale,
-              renderTime: new Date().toISOString(),
-              // Проверяем все возможные условия
-              condition1_hasSemanticFunction: !!chunk.metrics.semantic_function,
-              condition2_isUpdating: chunk.metrics.isUpdating,
-              condition3_both: !!chunk.metrics.semantic_function && !chunk.metrics.isUpdating
-            });
-            
             // УПРОЩЕННАЯ ЛОГИКА ОТОБРАЖЕНИЯ
             if (chunk.metrics.isUpdating) {
               return (
@@ -417,22 +401,7 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
   console.log('🃏 CardDeckPanelV2 ре-рендер:', {
     hasDocument: !!document,
     chunksCount: document?.chunks.length || 0,
-    documentVersion: document?.version || 0,
-    timestamp: new Date().toISOString(),
-    chunksPreview: document?.chunks.slice(0, 3).map(c => ({
-      id: c.id.slice(0, 8),
-      hasSemanticFunction: !!c.metrics.semantic_function,
-      semantic_function: c.metrics.semantic_function
-    })),
-    // СРАВНЕНИЕ с SemanticMapPanel логикой
-    chunksWithSemanticFunctions: document?.chunks.filter(c => c.metrics.semantic_function).length || 0,
-    allChunksSemanticData: document?.chunks.map(c => ({
-      id: c.id.slice(0, 8),
-      semantic_function: c.metrics.semantic_function,
-      isUpdating: c.metrics.isUpdating,
-      isStale: c.metrics.isStale,
-      hasSemanticFunction: !!c.metrics.semantic_function
-    })) || []
+    documentVersion: document?.version || 0
   });
 
   // Отслеживаем изменения semantic_function в чанках
@@ -440,15 +409,9 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     if (!document?.chunks) return;
     
     const chunksWithSemanticFunctions = document.chunks.filter(c => c.metrics.semantic_function);
-    console.log('📊 CardDeckPanelV2 useEffect - изменения в semantic_function:', {
-      timestamp: new Date().toISOString(),
-      documentVersion: document.version,
+    console.log('📊 Семантические функции обновлены:', {
       totalChunks: document.chunks.length,
-      chunksWithSemanticFunctions: chunksWithSemanticFunctions.length,
-      semanticFunctions: chunksWithSemanticFunctions.map(c => ({
-        id: c.id.slice(0, 8),
-        semantic_function: c.metrics.semantic_function
-      }))
+      withSemanticFunctions: chunksWithSemanticFunctions.length
     });
   }, [document?.chunks, document?.version]);
 
@@ -556,15 +519,68 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     return chunks
   }, [document?.chunks, sortField, sortDirection]);
 
-  // Функция для расчета цвета карточки по сигналу
+  // Вычисляем нормализованные значения для цветов
+  const normalizedMetrics = useMemo(() => {
+    if (!sortedChunks.length) {
+      return { signalNormalized: new Map(), complexityNormalized: new Map() };
+    }
+
+    // Собираем все валидные значения signal_strength
+    const signalValues = sortedChunks
+      .map(chunk => chunk.metrics.signal_strength)
+      .filter((val): val is number => typeof val === 'number' && !isNaN(val));
+    
+    // Собираем все валидные значения complexity
+    const complexityValues = sortedChunks
+      .map(chunk => chunk.metrics.complexity)
+      .filter((val): val is number => typeof val === 'number' && !isNaN(val));
+
+    // Вычисляем min/max для signal_strength
+    const signalMin = signalValues.length > 0 ? Math.min(...signalValues) : 0;
+    const signalMax = signalValues.length > 0 ? Math.max(...signalValues) : 1;
+    const signalRange = signalMax - signalMin || 1; // Избегаем деления на 0
+
+    // Вычисляем min/max для complexity
+    const complexityMin = complexityValues.length > 0 ? Math.min(...complexityValues) : 0;
+    const complexityMax = complexityValues.length > 0 ? Math.max(...complexityValues) : 1;
+    const complexityRange = complexityMax - complexityMin || 1; // Избегаем деления на 0
+
+    console.log('🎨 Нормализация метрик:', {
+      signal: { min: signalMin, max: signalMax, range: signalRange, count: signalValues.length },
+      complexity: { min: complexityMin, max: complexityMax, range: complexityRange, count: complexityValues.length }
+    });
+
+    // Создаем нормализованные значения для каждого чанка
+    const signalNormalized = new Map<string, number>();
+    const complexityNormalized = new Map<string, number>();
+
+    sortedChunks.forEach(chunk => {
+      // Нормализация signal_strength (0 = min значение, 1 = max значение)
+      if (typeof chunk.metrics.signal_strength === 'number' && !isNaN(chunk.metrics.signal_strength)) {
+        const normalized = (chunk.metrics.signal_strength - signalMin) / signalRange;
+        signalNormalized.set(chunk.id, Math.max(0, Math.min(1, normalized)));
+      }
+
+      // Нормализация complexity (0 = min значение, 1 = max значение)
+      if (typeof chunk.metrics.complexity === 'number' && !isNaN(chunk.metrics.complexity)) {
+        const normalized = (chunk.metrics.complexity - complexityMin) / complexityRange;
+        complexityNormalized.set(chunk.id, Math.max(0, Math.min(1, normalized)));
+      }
+    });
+
+    return { signalNormalized, complexityNormalized };
+  }, [sortedChunks]);
+
+  // Функция для расчета цвета карточки по НОРМАЛИЗОВАННОМУ сигналу
   const getCardColor = (chunk: any): string => {
-    const signal = chunk.metrics.signal_strength
-    if (signal === undefined || signal === null) {
+    const normalizedSignal = normalizedMetrics.signalNormalized.get(chunk.id);
+    
+    if (normalizedSignal === undefined) {
       return '#f9fafb' // Серый для неопределенных значений
     }
     
     // Интерполяция между минимальным и максимальным цветом
-    const ratio = Math.max(0, Math.min(1, signal)) // Ограничиваем от 0 до 1
+    const ratio = normalizedSignal; // Уже нормализовано от 0 до 1
     
     const hexToRgb = (hex: string) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -585,15 +601,16 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     return `rgb(${r}, ${g}, ${b})`
   }
 
-  // Функция для расчета цвета текста по сложности
+  // Функция для расчета цвета текста по НОРМАЛИЗОВАННОЙ сложности
   const getTextColor = (chunk: any): string => {
-    const complexity = chunk.metrics.complexity
-    if (complexity === undefined || complexity === null) {
+    const normalizedComplexity = normalizedMetrics.complexityNormalized.get(chunk.id);
+    
+    if (normalizedComplexity === undefined) {
       return '#374151' // Серый для неопределенных значений
     }
     
-    // Нормализация сложности (предполагаем диапазон 0-1)
-    const ratio = Math.max(0, Math.min(1, complexity))
+    // Интерполяция между минимальным и максимальным цветом
+    const ratio = normalizedComplexity; // Уже нормализовано от 0 до 1
     
     const hexToRgb = (hex: string) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
