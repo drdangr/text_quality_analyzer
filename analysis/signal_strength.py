@@ -622,6 +622,11 @@ def analyze_single_chunk_local_metrics(
             embedding_service = get_default_embedding_service()
         
         if embedding_service and topic.strip():
+            # ВАЖНО: Инвалидируем кэш для этого текста перед анализом
+            # Это гарантирует, что будет вычислен новый эмбеддинг
+            embedding_service.invalidate_paragraph_cache([chunk_text])
+            logging.debug(f"[ChunkLocalMetrics] Кэш инвалидирован для текста длиной {len(chunk_text)}")
+            
             # Создаем временный DataFrame для использования существующих функций
             temp_df = pd.DataFrame({'text': [chunk_text]})
             temp_df = embedding_service.analyze_signal_strength_batch(temp_df, topic, batch_size=1)
@@ -692,6 +697,13 @@ def analyze_batch_chunks_local_metrics(
         # Создаем DataFrame для пакетного анализа signal_strength
         chunk_texts = [chunk.get("text", "") for chunk in chunks]
         chunk_ids = [chunk.get("id", 0) for chunk in chunks]
+        
+        # ВАЖНО: Инвалидируем кэш для всех текстов перед анализом
+        # Это гарантирует, что будут вычислены новые эмбеддинги
+        valid_texts = [text for text in chunk_texts if text.strip()]
+        if valid_texts and embedding_service:
+            embedding_service.invalidate_paragraph_cache(valid_texts)
+            logging.debug(f"[ChunkLocalMetricsBatch] Кэш инвалидирован для {len(valid_texts)} текстов")
         
         temp_df = pd.DataFrame({
             'text': chunk_texts,

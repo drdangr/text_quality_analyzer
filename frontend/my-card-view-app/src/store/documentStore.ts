@@ -309,6 +309,25 @@ export const useDocumentStore = create<AppState>()(
 
           set({ document: updatedDocument, error: null });
 
+          // Запускаем обновление метрик для всех чанков (контекст изменился)
+          setTimeout(() => {
+            const currentState = get();
+            if (currentState.document && currentState.document.chunks) {
+              // Устанавливаем тип семантического обновления в GLOBAL, так как контекст всех чанков изменился
+              set(state => ({
+                metricsQueue: {
+                  ...state.metricsQueue,
+                  semanticUpdateType: SemanticUpdateType.GLOBAL
+                }
+              }));
+              
+              currentState.document.chunks.forEach(chunk => {
+                get().queueMetricsUpdate(chunk.id, 'local');
+                get().queueMetricsUpdate(chunk.id, 'contextual'); // Добавляем семантический анализ
+              });
+            }
+          }, 100); // Небольшая задержка для стабильности
+
           // УБИРАЕМ АВТОМАТИЧЕСКИЙ АНАЛИЗ - теперь TextEditorPanelV2 сам контролирует запуск
           const staleChunks = getStaleChunks(updatedChunks);
           console.log('✅ Текст обновлен (БЕЗ автоматического анализа):', { 
@@ -912,8 +931,17 @@ export const useDocumentStore = create<AppState>()(
           setTimeout(() => {
             const currentState = get();
             if (currentState.document && currentState.document.chunks) {
+              // Устанавливаем тип семантического обновления в GLOBAL, так как контекст всех чанков изменился
+              set(state => ({
+                metricsQueue: {
+                  ...state.metricsQueue,
+                  semanticUpdateType: SemanticUpdateType.GLOBAL
+                }
+              }));
+              
               currentState.document.chunks.forEach(chunk => {
                 get().queueMetricsUpdate(chunk.id, 'local');
+                get().queueMetricsUpdate(chunk.id, 'contextual'); // Добавляем семантический анализ
               });
             }
           }, 100); // Небольшая задержка для стабильности

@@ -177,6 +177,25 @@ class EmbeddingService:
             self.topic_cache.clear()
             logger.info("EmbeddingService: Кэш эмбеддингов тем очищен.")
         
+    def invalidate_paragraph_cache(self, texts: List[str]) -> None:
+        """
+        Инвалидирует кэш для конкретных текстов.
+        
+        Args:
+            texts: Список текстов, для которых нужно удалить кэш
+        """
+        invalidated_count = 0
+        for text in texts:
+            text_hash = hashlib.md5(text.encode()).hexdigest()
+            if text_hash in self.paragraph_cache:
+                # Удаляем из кэша
+                self.paragraph_cache.cache.pop(text_hash, None)
+                invalidated_count += 1
+                logger.debug(f"EmbeddingService: Кэш для текста (hash: {text_hash}) инвалидирован.")
+        
+        if invalidated_count > 0:
+            logger.info(f"EmbeddingService: Инвалидировано {invalidated_count} записей кэша абзацев.")
+        
     def analyze_signal_strength_batch(self, df: pd.DataFrame, topic_prompt: str, 
                                     batch_size: Optional[int] = None) -> pd.DataFrame:
         """
