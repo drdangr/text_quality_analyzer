@@ -313,6 +313,85 @@ interface ParagraphMetrics {
   semantic_function?: string | null;
 }
 
+// --- НОВЫЕ API ФУНКЦИИ ДЛЯ ЛОКАЛЬНЫХ МЕТРИК ЧАНКОВ ---
+
+// Интерфейс для запроса локальных метрик одного чанка  
+export interface ChunkLocalMetricsRequest {
+  chunk_text: string;
+  topic: string;
+}
+
+// Интерфейс для ответа локальных метрик одного чанка
+export interface ChunkLocalMetricsResponse {
+  signal_strength?: number;
+  complexity?: number;
+  lix?: number;
+  smog?: number;
+}
+
+// Интерфейс для пакетного запроса локальных метрик
+export interface BatchChunkLocalMetricsRequest {
+  chunks: Array<{
+    id: string;
+    text: string;
+  }>;
+  topic: string;
+}
+
+// Интерфейс для пакетного ответа локальных метрик
+export interface BatchChunkLocalMetricsResponse {
+  results: Array<{
+    chunk_id: string;
+    metrics: ChunkLocalMetricsResponse;
+  }>;
+}
+
+// Функция для получения локальных метрик одного чанка
+export async function getChunkLocalMetrics(
+  chunkText: string,
+  topic: string
+): Promise<ChunkLocalMetricsResponse> {
+  const requestBody: ChunkLocalMetricsRequest = {
+    chunk_text: chunkText,
+    topic: topic
+  };
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/chunk/metrics/local`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  await handleResponseError(response);
+  return response.json() as Promise<ChunkLocalMetricsResponse>;
+}
+
+// Функция для пакетного получения локальных метрик чанков
+export async function getBatchChunkLocalMetrics(
+  chunks: Array<{ id: string; text: string }>,
+  topic: string
+): Promise<BatchChunkLocalMetricsResponse> {
+  const requestBody: BatchChunkLocalMetricsRequest = {
+    chunks: chunks,
+    topic: topic
+  };
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/chunks/metrics/batch-local`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  await handleResponseError(response);
+  return response.json() as Promise<BatchChunkLocalMetricsResponse>;
+}
+
 // Функция для расчета метрик одного абзаца
 export const calculateParagraphMetrics = async (
   sessionId: string,
@@ -352,4 +431,152 @@ export const calculateTextMetrics = async (
   }
 
   return response.json();
-}; 
+};
+
+// --- НОВЫЕ API ФУНКЦИИ ДЛЯ СЕМАНТИЧЕСКИХ МЕТРИК ЧАНКОВ ---
+
+// Интерфейс для запроса семантических метрик одного чанка
+export interface ChunkSemanticRequest {
+  chunk_id: string;
+  chunk_text: string;
+  full_text: string;
+  topic: string;
+}
+
+// Интерфейс для ответа семантических метрик одного чанка
+export interface ChunkSemanticResponse {
+  chunk_id: string;
+  metrics: {
+    semantic_function?: string;
+    semantic_method?: string;
+    semantic_error?: string;
+  };
+}
+
+// Интерфейс для пакетного запроса семантических метрик
+export interface BatchChunkSemanticRequest {
+  chunks: Array<{
+    id: string;
+    text: string;
+  }>;
+  full_text: string;
+  topic: string;
+}
+
+// Интерфейс для пакетного ответа семантических метрик
+export interface BatchChunkSemanticResponse {
+  results: Array<ChunkSemanticResponse>;
+  failed: Array<string>;
+}
+
+// Функция для получения семантических метрик одного чанка
+export async function getChunkSemantic(
+  chunkId: string,
+  chunkText: string,
+  fullText: string,
+  topic: string
+): Promise<ChunkSemanticResponse> {
+  const requestBody: ChunkSemanticRequest = {
+    chunk_id: chunkId,
+    chunk_text: chunkText,
+    full_text: fullText,
+    topic: topic
+  };
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/chunk/metrics/semantic-single`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  await handleResponseError(response);
+  
+  // Добавляем отладку сырого ответа
+  const rawResponse = await response.text();
+  console.log('📡 getChunkSemantic СЫРОЙ ответ от сервера:', {
+    chunkId: chunkId,
+    rawResponse: rawResponse.substring(0, 300) + (rawResponse.length > 300 ? '...' : ''),
+    responseLength: rawResponse.length
+  });
+  
+  let parsedResponse;
+  try {
+    parsedResponse = JSON.parse(rawResponse);
+    console.log('📡 getChunkSemantic ПАРСИНГ JSON:', {
+      chunkId: chunkId,
+      hasMetrics: !!parsedResponse.metrics,
+      metrics: parsedResponse.metrics,
+      semantic_function: parsedResponse.metrics?.semantic_function,
+      semantic_function_type: typeof parsedResponse.metrics?.semantic_function,
+      structure: Object.keys(parsedResponse)
+    });
+  } catch (parseError) {
+    console.error('❌ getChunkSemantic ошибка парсинга JSON:', parseError);
+    throw new Error(`Ошибка парсинга JSON ответа: ${parseError}`);
+  }
+  
+  return parsedResponse as ChunkSemanticResponse;
+}
+
+// Функция для пакетного получения семантических метрик чанков
+export async function getBatchChunkSemantic(
+  chunks: Array<{ id: string; text: string }>,
+  fullText: string,
+  topic: string
+): Promise<BatchChunkSemanticResponse> {
+  const requestBody: BatchChunkSemanticRequest = {
+    chunks: chunks,
+    full_text: fullText,
+    topic: topic
+  };
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/chunks/metrics/semantic-batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  await handleResponseError(response);
+  
+  // Добавляем отладку сырого ответа
+  const rawResponse = await response.text();
+  console.log('📡 getBatchChunkSemantic СЫРОЙ ответ от сервера:', {
+    rawResponse: rawResponse.substring(0, 500) + (rawResponse.length > 500 ? '...' : ''),
+    responseLength: rawResponse.length
+  });
+  
+  let parsedResponse;
+  try {
+    parsedResponse = JSON.parse(rawResponse);
+    console.log('📡 getBatchChunkSemantic ПАРСИНГ JSON:', {
+      hasResults: !!parsedResponse.results,
+      resultsCount: parsedResponse.results?.length || 0,
+      firstResult: parsedResponse.results?.[0] || null,
+      structure: Object.keys(parsedResponse)
+    });
+    
+    // Проверяем каждый результат
+    if (parsedResponse.results) {
+      parsedResponse.results.forEach((result: any, index: number) => {
+        console.log(`📦 getBatchChunkSemantic результат ${index + 1}:`, {
+          chunk_id: result.chunk_id,
+          hasMetrics: !!result.metrics,
+          metrics: result.metrics,
+          semantic_function: result.metrics?.semantic_function,
+          semantic_function_type: typeof result.metrics?.semantic_function
+        });
+      });
+    }
+  } catch (parseError) {
+    console.error('❌ getBatchChunkSemantic ошибка парсинга JSON:', parseError);
+    throw new Error(`Ошибка парсинга JSON ответа: ${parseError}`);
+  }
+  
+  return parsedResponse as BatchChunkSemanticResponse;
+} 

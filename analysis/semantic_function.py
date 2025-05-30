@@ -300,3 +300,328 @@ async def analyze_semantic_function_batch(
                  result_df[col] = final_combined_results_df[col]
 
     return result_df
+
+# ===== НОВЫЕ ФУНКЦИИ ДЛЯ АРХИТЕКТУРЫ ЧАНКОВ =====
+
+async def analyze_single_chunk_semantic(
+    chunk_text: str,
+    full_text: str,
+    topic: str,
+    openai_service: OpenAIService
+) -> dict:
+    """
+    Анализирует семантическую функцию одного чанка в контексте всего документа.
+    
+    Args:
+        chunk_text: Текст анализируемого чанка
+        full_text: Полный текст документа для контекста
+        topic: Тема документа
+        openai_service: Сервис OpenAI для API вызовов
+    
+    Returns:
+        dict: Результат анализа {"semantic_function": str, "semantic_method": str, "semantic_error": str?}
+    """
+    logger.info(f"[ChunkSemanticAPI] Анализ одного чанка. Длина чанка: {len(chunk_text)}, Тема: '{topic[:30]}...'")
+    
+    # Дефолтный результат при ошибках
+    default_result = {
+        "semantic_function": "error_api_call",
+        "semantic_method": "api_single", 
+        "semantic_error": "API service unavailable"
+    }
+    
+    if not openai_service or not openai_service.is_available or not openai_service.client:
+        logger.warning("[ChunkSemanticAPI] OpenAI API недоступен")
+        default_result["semantic_error"] = "OpenAI API unavailable or not configured"
+        return default_result
+    
+    if not chunk_text.strip():
+        logger.warning("[ChunkSemanticAPI] Пустой текст чанка")
+        default_result["semantic_error"] = "Empty chunk text"
+        return default_result
+    
+    if not full_text.strip():
+        logger.warning("[ChunkSemanticAPI] Пустой полный текст документа")
+        default_result["semantic_error"] = "Empty full text"
+        return default_result
+    
+    try:
+        # Создаем промпт для анализа одного чанка
+        prompt_messages = _create_single_chunk_prompt(chunk_text, full_text, topic)
+        
+        # Настройки API вызова
+        api_call_params = API_CALL_PARAMS.copy()
+        api_call_params["model"] = openai_service.default_model
+        api_call_params["max_tokens"] = 100  # Достаточно для одной роли
+        
+        # Выполняем запрос к OpenAI API
+        loop = asyncio.get_running_loop()
+        api_response = await loop.run_in_executor(
+            None,
+            lambda: openai_service.client.chat.completions.create(
+                messages=prompt_messages, **api_call_params
+            )
+        )
+        
+        if not api_response.choices or not api_response.choices[0].message or not api_response.choices[0].message.content:
+            logger.error("[ChunkSemanticAPI] API не вернул контент в ответе")
+            default_result["semantic_error"] = "API did not return content"
+            return default_result
+        
+        api_response_text = api_response.choices[0].message.content.strip()
+        logger.debug(f"[ChunkSemanticAPI] Получен ответ от API: '{api_response_text}'")
+        
+        # Парсим ответ API
+        semantic_function = _parse_single_chunk_response(api_response_text)
+        
+        result = {
+            "semantic_function": semantic_function,
+            "semantic_method": "api_single",
+            "semantic_error": None if semantic_function != "parsing_error" else "Failed to parse API response"
+        }
+        
+        logger.info(f"[ChunkSemanticAPI] Анализ завершен успешно: '{semantic_function}'")
+        return result
+        
+    except openai.APIConnectionError as e:
+        logger.error(f"[ChunkSemanticAPI] Ошибка подключения к OpenAI API: {e}")
+        default_result["semantic_error"] = f"APIConnectionError: {str(e)[:150]}"
+        return default_result
+    except openai.RateLimitError as e:
+        logger.error(f"[ChunkSemanticAPI] Превышен лимит запросов к OpenAI API: {e}")
+        default_result["semantic_error"] = f"RateLimitError: {str(e)[:150]}"
+        return default_result
+    except openai.APIStatusError as e:
+        logger.error(f"[ChunkSemanticAPI] Ошибка статуса OpenAI API: {e}")
+        default_result["semantic_error"] = f"APIStatusError: Status {e.status_code}"
+        return default_result
+    except Exception as e:
+        logger.error(f"[ChunkSemanticAPI] Непредвиденная ошибка: {e}", exc_info=True)
+        default_result["semantic_error"] = f"UnexpectedError: {str(e)[:150]}"
+        return default_result
+
+def _create_single_chunk_prompt(chunk_text: str, full_text: str, topic: str) -> List[Dict[str, str]]:
+    """
+    Создает промпт для анализа семантической функции одного чанка.
+    """
+    # Описание ролей с подстановкой темы
+    roles_description_parts = []
+    for i, label in enumerate(API_LABELS, 1):
+        display_label = label.replace(" / ", " или ")
+        description_line = f"{i}. {display_label}"
+        
+        # Подстановка описаний для меток, связанных с темой
+        if label in API_TOPIC_LABELS:
+            if label == "раскрытие темы": 
+                description_line += f" — развивает основную тему '{topic}'"
+            elif label == "пояснение на примере": 
+                description_line += f" — иллюстрирует тему '{topic}' конкретным случаем"
+            elif label == "лирическое отступление": 
+                description_line += f" — философское размышление по теме '{topic}'"
+            elif label == "ключевой тезис": 
+                description_line += f" — центральная мысль по теме '{topic}'"
+            elif label == "шум": 
+                description_line += f" — не относится к теме '{topic}'"
+        else:
+            # Добавляем описания для ролей, не связанных с темой
+            if label == "метафора или аналогия": 
+                description_line += " — образное выражение, сравнение"
+            elif label == "юмор или ирония или сарказм": 
+                description_line += " — комический эффект, ирония"
+            elif label == "связующий переход": 
+                description_line += " — мостик между частями текста"
+            elif label == "смена темы": 
+                description_line += " — переключение на другую тему"
+            elif label == "противопоставление или контраст": 
+                description_line += " — различие, оппозиция идей"
+        
+        roles_description_parts.append(description_line)
+    
+    roles_description_str = "\n".join(roles_description_parts)
+    
+    system_prompt = "Ты — эксперт по анализу текста. Определи семантическую роль выделенного фрагмента в контексте всего документа."
+    
+    user_prompt = (
+        f"Тема документа: \"{topic}\"\n\n"
+        f"Полный текст документа:\n{full_text}\n\n"
+        f"Анализируемый фрагмент: \"{chunk_text}\"\n\n"
+        f"Выбери одну или максимум две роли для этого фрагмента из списка:\n{roles_description_str}\n\n"
+        f"Ответь только названием роли (или двух ролей через \" / \"). Никаких дополнительных объяснений."
+    )
+    
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+def _parse_single_chunk_response(response_text: str) -> str:
+    """
+    Парсит ответ API для одного чанка.
+    
+    Args:
+        response_text: Ответ от OpenAI API
+        
+    Returns:
+        str: Семантическая функция или "parsing_error"
+    """
+    response_text = response_text.strip()
+    
+    # Создаем set из допустимых меток в нижнем регистре
+    valid_labels_lower = {label.lower() for label in API_LABELS}
+    
+    # Разбиваем ответ по разделителям (/, или, and, etc.)
+    potential_labels = []
+    for delimiter in [' / ', ' или ', ' и ', ' and ', ',']:
+        if delimiter in response_text:
+            potential_labels = [label.strip() for label in response_text.split(delimiter)]
+            break
+    
+    # Если разделителей не найдено, весь ответ считаем одной меткой
+    if not potential_labels:
+        potential_labels = [response_text]
+    
+    # Проверяем каждую метку на валидность
+    valid_labels = []
+    for label_candidate in potential_labels:
+        label_lower = label_candidate.lower().strip()
+        
+        # Ищем точное совпадение
+        if label_lower in valid_labels_lower:
+            # Находим оригинальную метку с правильным регистром
+            original_label = next((api_label for api_label in API_LABELS if api_label.lower() == label_lower), label_candidate)
+            valid_labels.append(original_label)
+        else:
+            # Ищем частичное совпадение
+            for api_label in API_LABELS:
+                if label_lower in api_label.lower() or api_label.lower() in label_lower:
+                    valid_labels.append(api_label)
+                    break
+    
+    if valid_labels:
+        result = " / ".join(valid_labels)
+        logger.debug(f"[ChunkSemanticParser] Успешно распознано: '{result}'")
+        return result
+    else:
+        logger.warning(f"[ChunkSemanticParser] Не удалось распознать роль в ответе: '{response_text}'")
+        return "parsing_error"
+
+async def analyze_batch_chunks_semantic(
+    chunks: List[Dict[str, Any]],
+    full_text: str,
+    topic: str,
+    openai_service: OpenAIService,
+    max_parallel: int = 1
+) -> List[dict]:
+    """
+    Анализирует семантические функции пакета чанков с контролем параллельности.
+    
+    Args:
+        chunks: Список чанков [{"id": int, "text": str}, ...]
+        full_text: Полный текст документа для контекста
+        topic: Тема документа
+        openai_service: Сервис OpenAI для API вызовов
+        max_parallel: Максимальное количество параллельных запросов
+    
+    Returns:
+        List[dict]: Список результатов [{"chunk_id": int, "metrics": {...}}, ...]
+    """
+    logger.info(f"[ChunkSemanticBatch] Пакетный анализ {len(chunks)} чанков (параллельность: {max_parallel})")
+    
+    if not chunks:
+        logger.warning("[ChunkSemanticBatch] Пустой список чанков")
+        return []
+    
+    if not openai_service or not openai_service.is_available:
+        logger.warning("[ChunkSemanticBatch] OpenAI API недоступен")
+        # Возвращаем результаты с ошибками для всех чанков
+        return [
+            {
+                "chunk_id": chunk.get("id", 0),
+                "metrics": {
+                    "semantic_function": "error_api_call",
+                    "semantic_method": "api_batch",
+                    "semantic_error": "OpenAI API unavailable"
+                }
+            }
+            for chunk in chunks
+        ]
+    
+    # Создаем семафор для ограничения параллельности
+    semaphore = asyncio.Semaphore(max_parallel)
+    
+    async def analyze_single_with_semaphore(chunk: Dict[str, Any]) -> dict:
+        """Анализирует один чанк с семафором для контроля параллельности."""
+        async with semaphore:
+            chunk_id = chunk.get("id", 0)
+            chunk_text = chunk.get("text", "")
+            
+            try:
+                # Вызываем функцию анализа одного чанка
+                result = await analyze_single_chunk_semantic(
+                    chunk_text=chunk_text,
+                    full_text=full_text,
+                    topic=topic,
+                    openai_service=openai_service
+                )
+                
+                return {
+                    "chunk_id": chunk_id,
+                    "metrics": result
+                }
+                
+            except Exception as e:
+                logger.error(f"[ChunkSemanticBatch] Ошибка анализа чанка {chunk_id}: {e}", exc_info=True)
+                return {
+                    "chunk_id": chunk_id,
+                    "metrics": {
+                        "semantic_function": "error_api_call",
+                        "semantic_method": "api_batch",
+                        "semantic_error": f"Batch processing error: {str(e)[:100]}"
+                    }
+                }
+    
+    try:
+        # Запускаем параллельную обработку всех чанков
+        start_time = asyncio.get_event_loop().time()
+        
+        tasks = [analyze_single_with_semaphore(chunk) for chunk in chunks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Обрабатываем результаты и исключения
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                chunk_id = chunks[i].get("id", 0)
+                logger.error(f"[ChunkSemanticBatch] Исключение для чанка {chunk_id}: {result}")
+                final_results.append({
+                    "chunk_id": chunk_id,
+                    "metrics": {
+                        "semantic_function": "error_api_call",
+                        "semantic_method": "api_batch",
+                        "semantic_error": f"Exception: {str(result)[:100]}"
+                    }
+                })
+            else:
+                final_results.append(result)
+        
+        elapsed_time = asyncio.get_event_loop().time() - start_time
+        success_count = sum(1 for r in final_results if r["metrics"].get("semantic_error") is None)
+        
+        logger.info(f"[ChunkSemanticBatch] Завершен за {elapsed_time:.2f}с. Успешно: {success_count}/{len(chunks)}")
+        
+        return final_results
+        
+    except Exception as e:
+        logger.error(f"[ChunkSemanticBatch] Критическая ошибка пакетной обработки: {e}", exc_info=True)
+        # Возвращаем результаты с ошибками для всех чанков
+        return [
+            {
+                "chunk_id": chunk.get("id", 0),
+                "metrics": {
+                    "semantic_function": "error_api_call",
+                    "semantic_method": "api_batch",
+                    "semantic_error": f"Batch critical error: {str(e)[:100]}"
+                }
+            }
+            for chunk in chunks
+        ]

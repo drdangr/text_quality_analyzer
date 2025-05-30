@@ -1,6 +1,6 @@
 // Чистая версия CardDeckPanel с нативной поддержкой чанков
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Panel } from '../Panel'
 import { useDocumentStore } from '../../../store/documentStore'
 import {
@@ -188,17 +188,66 @@ const ChunkCard: React.FC<{
             <span>Сложность: {chunk.metrics.complexity?.toFixed(2) || 'N/A'}</span>
           </div>
           
-          {chunk.metrics.semantic_function && (
-            <span style={{ 
-              color: '#2563eb',
-              fontSize: '10px',
-              padding: '2px 6px',
-              backgroundColor: '#eff6ff',
-              borderRadius: '4px'
-            }}>
-              🏷️ {chunk.metrics.semantic_function}
-            </span>
-          )}
+          {(() => {
+            // Добавляем отладку для semantic_function
+            console.log(`🃏 РЕНДЕР карточки чанка #${index + 1}:`, {
+              chunkId: chunk.id.slice(0, 8),
+              hasSemanticFunction: !!chunk.metrics.semantic_function,
+              semantic_function: chunk.metrics.semantic_function,
+              semantic_function_type: typeof chunk.metrics.semantic_function,
+              allMetrics: chunk.metrics,
+              isUpdating: chunk.metrics.isUpdating,
+              isStale: chunk.metrics.isStale,
+              renderTime: new Date().toISOString(),
+              // Проверяем все возможные условия
+              condition1_hasSemanticFunction: !!chunk.metrics.semantic_function,
+              condition2_isUpdating: chunk.metrics.isUpdating,
+              condition3_both: !!chunk.metrics.semantic_function && !chunk.metrics.isUpdating
+            });
+            
+            // УПРОЩЕННАЯ ЛОГИКА ОТОБРАЖЕНИЯ
+            if (chunk.metrics.isUpdating) {
+              return (
+                <span style={{ 
+                  color: '#6b7280',
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: '3px'
+                }}>
+                  ⏳ Анализ...
+                </span>
+              );
+            }
+            
+            if (chunk.metrics.semantic_function) {
+              return (
+                <span style={{ 
+                  color: '#2563eb',
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  backgroundColor: '#eff6ff',
+                  borderRadius: '3px',
+                  border: '1px solid #bfdbfe'
+                }}>
+                  🏷️ {chunk.metrics.semantic_function}
+                </span>
+              );
+            }
+            
+            // Если нет semantic_function и не обновляется
+            return (
+              <span style={{ 
+                color: '#9ca3af',
+                fontSize: '10px',
+                padding: '2px 6px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '3px'
+              }}>
+                ❓ Ожидание
+              </span>
+            );
+          })()}
         </div>
         
         {/* Содержимое карточки */}
@@ -326,7 +375,7 @@ const HeatMapGrid: React.FC<{
             textAlign: 'center'
           }}
           onClick={() => onChunkClick(chunk.id)}
-          title={`Чанк #${index + 1}\nСигнал: ${chunk.metrics.signal_strength?.toFixed(2) || 'N/A'}\nСложность: ${chunk.metrics.complexity?.toFixed(2) || 'N/A'}\nСемантика: ${chunk.metrics.semantic_function || 'N/A'}`}
+          title={`Чанк #${index + 1}\\nСигнал: ${chunk.metrics.signal_strength?.toFixed(2) || 'N/A'}\\nСложность: ${chunk.metrics.complexity?.toFixed(2) || 'N/A'}\\nСемантика: ${chunk.metrics.semantic_function || 'N/A'}`}
           onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
           onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
         >
@@ -364,6 +413,44 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     mergeChunks,
     reorderChunks
   } = useDocumentStore()
+
+  console.log('🃏 CardDeckPanelV2 ре-рендер:', {
+    hasDocument: !!document,
+    chunksCount: document?.chunks.length || 0,
+    documentVersion: document?.version || 0,
+    timestamp: new Date().toISOString(),
+    chunksPreview: document?.chunks.slice(0, 3).map(c => ({
+      id: c.id.slice(0, 8),
+      hasSemanticFunction: !!c.metrics.semantic_function,
+      semantic_function: c.metrics.semantic_function
+    })),
+    // СРАВНЕНИЕ с SemanticMapPanel логикой
+    chunksWithSemanticFunctions: document?.chunks.filter(c => c.metrics.semantic_function).length || 0,
+    allChunksSemanticData: document?.chunks.map(c => ({
+      id: c.id.slice(0, 8),
+      semantic_function: c.metrics.semantic_function,
+      isUpdating: c.metrics.isUpdating,
+      isStale: c.metrics.isStale,
+      hasSemanticFunction: !!c.metrics.semantic_function
+    })) || []
+  });
+
+  // Отслеживаем изменения semantic_function в чанках
+  useEffect(() => {
+    if (!document?.chunks) return;
+    
+    const chunksWithSemanticFunctions = document.chunks.filter(c => c.metrics.semantic_function);
+    console.log('📊 CardDeckPanelV2 useEffect - изменения в semantic_function:', {
+      timestamp: new Date().toISOString(),
+      documentVersion: document.version,
+      totalChunks: document.chunks.length,
+      chunksWithSemanticFunctions: chunksWithSemanticFunctions.length,
+      semanticFunctions: chunksWithSemanticFunctions.map(c => ({
+        id: c.id.slice(0, 8),
+        semantic_function: c.metrics.semantic_function
+      }))
+    });
+  }, [document?.chunks, document?.version]);
 
   // Настройка drag-and-drop сенсоров
   const sensors = useSensors(
@@ -414,7 +501,22 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
 
   // Получаем отсортированные чанки
   const sortedChunks = useMemo(() => {
-    if (!document?.chunks) return []
+    if (!document?.chunks) {
+      console.log('🔄 sortedChunks: нет документа или чанков');
+      return [];
+    }
+    
+    console.log('🔄 sortedChunks СОЗДАНИЕ:', {
+      originalChunksCount: document.chunks.length,
+      originalChunksWithSemantic: document.chunks.filter(c => !!c.metrics.semantic_function).length,
+      sortField,
+      sortDirection,
+      originalChunksData: document.chunks.map(c => ({
+        id: c.id.slice(0, 8),
+        semantic_function: c.metrics.semantic_function,
+        hasSemanticFunction: !!c.metrics.semantic_function
+      }))
+    });
     
     const chunks = [...document.chunks]
     
@@ -439,8 +541,20 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
       return sortDirection === 'asc' ? aValue - bValue : bValue - aValue
     })
     
+    console.log('🔄 sortedChunks РЕЗУЛЬТАТ:', {
+      sortedChunksCount: chunks.length,
+      sortedChunksWithSemantic: chunks.filter(c => !!c.metrics.semantic_function).length,
+      sortedChunksData: chunks.map(c => ({
+        id: c.id.slice(0, 8),
+        semantic_function: c.metrics.semantic_function,
+        hasSemanticFunction: !!c.metrics.semantic_function
+      })),
+      dataPreserved: document.chunks.length === chunks.length,
+      semanticDataPreserved: document.chunks.filter(c => !!c.metrics.semantic_function).length === chunks.filter(c => !!c.metrics.semantic_function).length
+    });
+    
     return chunks
-  }, [document?.chunks, sortField, sortDirection])
+  }, [document?.chunks, sortField, sortDirection]);
 
   // Функция для расчета цвета карточки по сигналу
   const getCardColor = (chunk: any): string => {

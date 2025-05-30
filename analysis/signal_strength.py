@@ -23,7 +23,7 @@ class EmbeddingService:
     Инкапсулирует модель и кэш, предоставляя методы для анализа текста.
     """
     
-    def __init__(self, model_name: str = 'intfloat/multilingual-e5-large', 
+    def __init__(self, model_name: str = 'ai-forever/sbert_large_nlu_ru', 
                  cache_size: int = 1000, 
                  device: Optional[str] = None):
         """
@@ -136,7 +136,7 @@ class EmbeddingService:
             return self.topic_cache[topic_hash]
             
         logging.info(f"Вычисление эмбеддинга для темы: '{topic_text[:50]}...' (кэширование)")
-        topic_input = [f"query: {topic_text}"]
+        topic_input = [topic_text]  # Убрали префикс "query:"
         embedding = self.model.encode(topic_input, convert_to_tensor=True)
         
         # Кэшируем результат
@@ -179,7 +179,7 @@ class EmbeddingService:
             
         # Вычисляем новый эмбеддинг
         logging.debug(f"Вычисление эмбеддинга для абзаца (hash: {text_hash}, text: '{text[:50]}...').")
-        passage_input = [f"passage: {text}"]
+        passage_input = [text]  # Убрали префикс "passage:"
         embedding = self.model.encode(passage_input, convert_to_tensor=True)
         
         # Сохраняем в кэш
@@ -284,7 +284,7 @@ class EmbeddingService:
                 # Если есть тексты для обработки в текущем батче
                 if batch_texts_to_calc:
                     calculated_count += len(batch_texts_to_calc)
-                    batch_inputs = [f"passage: {p}" for p in batch_texts_to_calc]
+                    batch_inputs = [text for text in batch_texts_to_calc]
                     
                     # Вычисляем эмбеддинги для текущего батча
                     logging.debug(f"Батч {current_batch_num}/{num_batches}: вычисление эмбеддингов для {len(batch_texts_to_calc)} абзацев...")
@@ -583,3 +583,190 @@ def clear_embeddings_cache():
 #     print("\n--- Batch анализ после очистки кэша ---")
 #     result_batch_after_clear = analyze_signal_strength_batch(test_df.copy(), sample_topic)
 #     print(result_batch_after_clear)
+
+# ===== НОВЫЕ ФУНКЦИИ ДЛЯ ЛОКАЛЬНЫХ МЕТРИК ЧАНКОВ =====
+
+def analyze_single_chunk_local_metrics(
+    chunk_text: str,
+    topic: str,
+    embedding_service: 'EmbeddingService' = None
+) -> dict:
+    """
+    Анализирует локальные метрики одного чанка: signal_strength, complexity, lix, smog.
+    
+    Args:
+        chunk_text: Текст анализируемого чанка
+        topic: Тема для анализа signal_strength
+        embedding_service: Сервис для эмбеддингов (если None, используется синглтон)
+    
+    Returns:
+        dict: Результат анализа с локальными метриками
+    """
+    logging.info(f"[ChunkLocalMetrics] Анализ одного чанка. Длина: {len(chunk_text)}, Тема: '{topic[:30]}...'")
+    
+    # Результат по умолчанию
+    result = {
+        "signal_strength": None,
+        "complexity": None,
+        "lix": None,
+        "smog": None
+    }
+    
+    if not chunk_text.strip():
+        logging.warning("[ChunkLocalMetrics] Пустой текст чанка")
+        return result
+    
+    # 1. Анализ signal_strength (требует эмбеддинги)
+    try:
+        if not embedding_service:
+            embedding_service = get_default_embedding_service()
+        
+        if embedding_service and topic.strip():
+            # Создаем временный DataFrame для использования существующих функций
+            temp_df = pd.DataFrame({'text': [chunk_text]})
+            temp_df = embedding_service.analyze_signal_strength_batch(temp_df, topic, batch_size=1)
+            
+            if 'signal_strength' in temp_df.columns and len(temp_df) > 0:
+                signal_value = temp_df.iloc[0]['signal_strength']
+                if not pd.isna(signal_value):
+                    result["signal_strength"] = signal_value
+                    
+    except Exception as e:
+        logging.error(f"[ChunkLocalMetrics] Ошибка анализа signal_strength: {e}", exc_info=True)
+    
+    # 2. Анализ complexity, lix, smog (не требует внешних сервисов)
+    try:
+        # Импортируем функции из readability
+        from analysis.readability import russian_lix_index, russian_smog_index, calculate_complexity
+        
+        # Анализируем LIX
+        lix_value = russian_lix_index(chunk_text)
+        if lix_value is not None and not pd.isna(lix_value):
+            result["lix"] = round(lix_value, 3)
+        
+        # Анализируем SMOG
+        smog_value, smog_valid = russian_smog_index(chunk_text)
+        if smog_value is not None and not pd.isna(smog_value):
+            result["smog"] = round(smog_value, 3)
+        
+        # Анализируем общую сложность
+        complexity_value = calculate_complexity(lix_value, smog_value, smog_valid)
+        if complexity_value is not None and not pd.isna(complexity_value):
+            result["complexity"] = round(complexity_value, 3)
+            
+    except Exception as e:
+        logging.error(f"[ChunkLocalMetrics] Ошибка анализа readability метрик: {e}", exc_info=True)
+    
+    logging.info(f"[ChunkLocalMetrics] Анализ завершен: signal={result['signal_strength']}, complexity={result['complexity']}")
+    return result
+
+def analyze_batch_chunks_local_metrics(
+    chunks: List[Dict[str, Union[int, str]]],
+    topic: str,
+    embedding_service: 'EmbeddingService' = None
+) -> List[dict]:
+    """
+    Пакетный анализ локальных метрик чанков.
+    
+    Args:
+        chunks: Список чанков [{"id": int, "text": str}, ...]
+        topic: Тема для анализа signal_strength
+        embedding_service: Сервис для эмбеддингов (если None, используется синглтон)
+    
+    Returns:
+        List[dict]: Список результатов для каждого чанка
+    """
+    logging.info(f"[ChunkLocalMetricsBatch] Пакетный анализ {len(chunks)} чанков")
+    
+    if not chunks:
+        logging.warning("[ChunkLocalMetricsBatch] Пустой список чанков")
+        return []
+    
+    results = []
+    
+    try:
+        # Получаем сервис эмбеддингов
+        if not embedding_service:
+            embedding_service = get_default_embedding_service()
+        
+        # Создаем DataFrame для пакетного анализа signal_strength
+        chunk_texts = [chunk.get("text", "") for chunk in chunks]
+        chunk_ids = [chunk.get("id", 0) for chunk in chunks]
+        
+        temp_df = pd.DataFrame({
+            'text': chunk_texts,
+            'chunk_id': chunk_ids  # Добавляем ID для отслеживания
+        })
+        
+        # 1. Пакетный анализ signal_strength
+        signal_results = {}
+        if embedding_service and topic.strip():
+            try:
+                temp_df = embedding_service.analyze_signal_strength_batch(temp_df, topic, batch_size=32)
+                for idx, row in temp_df.iterrows():
+                    chunk_id = row['chunk_id']
+                    signal_value = row.get('signal_strength')
+                    if not pd.isna(signal_value):
+                        signal_results[chunk_id] = signal_value
+            except Exception as e:
+                logging.error(f"[ChunkLocalMetricsBatch] Ошибка пакетного анализа signal_strength: {e}")
+        
+        # 2. Анализ readability метрик для каждого чанка
+        from analysis.readability import russian_lix_index, russian_smog_index, calculate_complexity
+        
+        for chunk in chunks:
+            chunk_id = chunk.get("id", 0)
+            chunk_text = chunk.get("text", "")
+            
+            result = {
+                "chunk_id": chunk_id,
+                "metrics": {
+                    "signal_strength": signal_results.get(chunk_id),
+                    "complexity": None,
+                    "lix": None,
+                    "smog": None
+                }
+            }
+            
+            # Анализируем readability метрики только если есть текст
+            if chunk_text.strip():
+                try:
+                    # LIX
+                    lix_value = russian_lix_index(chunk_text)
+                    if lix_value is not None and not pd.isna(lix_value):
+                        result["metrics"]["lix"] = round(lix_value, 3)
+                    
+                    # SMOG
+                    smog_value, smog_valid = russian_smog_index(chunk_text)
+                    if smog_value is not None and not pd.isna(smog_value):
+                        result["metrics"]["smog"] = round(smog_value, 3)
+                    
+                    # Complexity
+                    complexity_value = calculate_complexity(lix_value, smog_value, smog_valid)
+                    if complexity_value is not None and not pd.isna(complexity_value):
+                        result["metrics"]["complexity"] = round(complexity_value, 3)
+                        
+                except Exception as e:
+                    logging.error(f"[ChunkLocalMetricsBatch] Ошибка readability анализа для чанка {chunk_id}: {e}")
+            
+            results.append(result)
+        
+        logging.info(f"[ChunkLocalMetricsBatch] Пакетный анализ завершен. Обработано: {len(results)} чанков")
+        return results
+        
+    except Exception as e:
+        logging.error(f"[ChunkLocalMetricsBatch] Критическая ошибка пакетного анализа: {e}", exc_info=True)
+        
+        # Возвращаем результаты с ошибками для всех чанков
+        return [
+            {
+                "chunk_id": chunk.get("id", 0),
+                "metrics": {
+                    "signal_strength": None,
+                    "complexity": None,
+                    "lix": None,
+                    "smog": None
+                }
+            }
+            for chunk in chunks
+        ]

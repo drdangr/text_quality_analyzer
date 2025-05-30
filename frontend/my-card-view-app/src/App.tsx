@@ -1,3 +1,4 @@
+import React from 'react';
 import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { TextEditorPanelV2 } from './components/panels/TextEditorPanel/TextEditorPanelV2'
@@ -7,11 +8,159 @@ import { PanelResizer } from './components/panels/PanelResizer'
 import { TestChunks } from './components/TestChunks'
 import { useDocumentStore } from './store/documentStore'
 import './App.css'
+import { SemanticUpdateType } from './types/chunks'
+import type { SemanticAnalysisProgress } from './types/chunks'
 
 // Константы для панелей
 const PANEL_COUNT = 3
 const COLLAPSED_PANEL_WIDTH = 48
 const RESIZER_WIDTH = 4
+
+// Компонент метрик документа для шапки
+const DocumentMetrics: React.FC<{
+  document: any
+  progress?: SemanticAnalysisProgress
+}> = ({ document, progress }) => {
+  if (!document?.chunks) return null
+
+  // Вычисляем средние значения метрик
+  const chunks = document.chunks
+  const validSignalChunks = chunks.filter((c: any) => c.metrics.signal_strength !== undefined && c.metrics.signal_strength !== null)
+  const validComplexityChunks = chunks.filter((c: any) => c.metrics.complexity !== undefined && c.metrics.complexity !== null)
+  
+  const avgSignal = validSignalChunks.length > 0 
+    ? validSignalChunks.reduce((sum: number, c: any) => sum + c.metrics.signal_strength, 0) / validSignalChunks.length
+    : 0
+
+  const avgComplexity = validComplexityChunks.length > 0
+    ? validComplexityChunks.reduce((sum: number, c: any) => sum + c.metrics.complexity, 0) / validComplexityChunks.length
+    : 0
+
+  // Примерное время чтения (средняя скорость чтения 200 слов в минуту)
+  const wordCount = document.text.split(/\s+/).filter((word: string) => word.length > 0).length
+  const readingTimeMinutes = Math.ceil(wordCount / 200)
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '24px',
+      fontSize: '13px',
+      color: '#64748b'
+    }}>
+      {/* Основные метрики */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>🎯</span>
+          <span style={{ 
+            fontWeight: '600',
+            color: avgSignal > 0.7 ? '#059669' : avgSignal > 0.5 ? '#d97706' : '#dc2626'
+          }}>
+            {avgSignal.toFixed(2)}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>🧠</span>
+          <span style={{ 
+            fontWeight: '600',
+            color: avgComplexity < 0.3 ? '#059669' : avgComplexity < 0.7 ? '#d97706' : '#dc2626'
+          }}>
+            {avgComplexity.toFixed(2)}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span>⏱️</span>
+          <span style={{ fontWeight: '600', color: '#1e40af' }}>
+            ~{readingTimeMinutes} мин
+          </span>
+        </div>
+      </div>
+
+      {/* Статистика документа */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span>📝 {wordCount} слов</span>
+        <span>🧩 {chunks.length} чанков</span>
+        <span>📄 {document.text.length} символов</span>
+      </div>
+    </div>
+  )
+}
+
+// Компонент прогресс-бара семантического анализа
+const SemanticAnalysisProgressBar: React.FC<{
+  progress: SemanticAnalysisProgress
+}> = ({ progress }) => {
+  console.log('🎨 SemanticAnalysisProgressBar render:', { 
+    progress,
+    isActive: progress?.isActive,
+    processedChunks: progress?.processedChunks,
+    totalChunks: progress?.totalChunks
+  });
+
+  if (!progress || !progress.isActive) {
+    console.log('🎨 Прогресс-бар скрыт: progress =', progress);
+    return null;
+  }
+
+  const percentage = progress.totalChunks > 0 
+    ? Math.round((progress.processedChunks / progress.totalChunks) * 100)
+    : 0
+
+  const elapsedTime = Date.now() - progress.startTime
+  const avgTimePerChunk = progress.processedChunks > 0 ? elapsedTime / progress.processedChunks : 0
+  const remainingChunks = progress.totalChunks - progress.processedChunks
+  const estimatedTimeRemaining = Math.round((remainingChunks * avgTimePerChunk) / 1000)
+
+  const isGlobal = progress.type === SemanticUpdateType.GLOBAL
+
+  console.log('🎨 Прогресс-бар отображается:', {
+    percentage,
+    isGlobal,
+    processedChunks: progress.processedChunks,
+    totalChunks: progress.totalChunks,
+    estimatedTimeRemaining
+  });
+
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: '3px',
+      backgroundColor: '#f1f5f9',
+      borderRadius: '0 0 6px 6px',
+      overflow: 'hidden'
+    }}>
+      <div style={{
+        height: '100%',
+        width: `${percentage}%`,
+        backgroundColor: isGlobal ? '#ef4444' : '#3b82f6',
+        transition: 'width 0.3s ease',
+        position: 'relative'
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: '-24px',
+          right: '8px',
+          fontSize: '11px',
+          color: isGlobal ? '#dc2626' : '#1e40af',
+          fontWeight: '600',
+          backgroundColor: 'white',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          border: `1px solid ${isGlobal ? '#fecaca' : '#dbeafe'}`,
+          whiteSpace: 'nowrap'
+        }}>
+          {isGlobal ? '🌍 Глобальный' : '🎯 Локальный'} анализ: {progress.processedChunks}/{progress.totalChunks}
+          {estimatedTimeRemaining > 0 && ` • ~${estimatedTimeRemaining}с`}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function App() {
   // Проверяем URL для тестового режима
@@ -46,8 +195,18 @@ function App() {
   const { 
     document,
     loading, 
-    error
+    error, 
+    semanticProgress
   } = useDocumentStore()
+
+  // Отладка состояния semanticProgress
+  console.log('🎯 App render - semanticProgress состояние:', {
+    semanticProgress,
+    hasProgress: !!semanticProgress,
+    isActive: semanticProgress?.isActive,
+    processedChunks: semanticProgress?.processedChunks,
+    totalChunks: semanticProgress?.totalChunks
+  });
 
   // Функции для изменения размера панелей
   const handleEditorResize = (delta: number) => {
@@ -169,7 +328,8 @@ function App() {
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
         borderBottom: '1px solid #e5e7eb',
         padding: '12px 24px',
-        flexShrink: 0
+        flexShrink: 0,
+        position: 'relative'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -181,38 +341,12 @@ function App() {
             }}>
               {document?.metadata.topic || 'Анализатор текста'}
             </h1>
+            
+            {/* Интегрированные метрики документа */}
             {document && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#6b7280' }}>
-                <span style={{ 
-                  padding: '2px 8px', 
-                  backgroundColor: '#f3f4f6', 
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  🧩 {document.chunks.length} чанков
-                </span>
-                <span style={{ 
-                  padding: '2px 8px', 
-                  backgroundColor: '#f0f9ff', 
-                  borderRadius: '4px',
-                  color: '#0369a1',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  📄 {document.text.length} символов
-                </span>
-                <span style={{ 
-                  padding: '2px 8px', 
-                  backgroundColor: '#f0fdf4', 
-                  borderRadius: '4px',
-                  color: '#16a34a'
-                }}>
-                  📊 V{document.version}
-                </span>
-              </div>
+              <DocumentMetrics 
+                document={document}
+              />
             )}
           </div>
           
@@ -231,6 +365,11 @@ function App() {
             )}
           </div>
         </div>
+        
+        {/* Прогресс-бар семантического анализа */}
+        {semanticProgress && (
+          <SemanticAnalysisProgressBar progress={semanticProgress} />
+        )}
       </header>
 
       {/* Panels Container */}

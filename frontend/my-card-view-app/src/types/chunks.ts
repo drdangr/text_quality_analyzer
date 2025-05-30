@@ -45,12 +45,6 @@ export interface ChangeInfo {
   oldText: string;
 }
 
-export interface MetricsUpdateQueue {
-  localUpdates: Set<string>;      // Chunk IDs для локальных метрик
-  contextualUpdates: Set<string>; // Chunk IDs для контекстуальных метрик
-  debounceTimer?: number;
-}
-
 // Типы для Monaco Editor событий
 export interface MonacoChangeEvent {
   changes: Array<{
@@ -64,6 +58,29 @@ export interface MonacoChangeEvent {
     rangeLength: number;
     text: string;
   }>;
+}
+
+// Новые типы для классификации изменений семантики
+export enum SemanticUpdateType {
+  LOCAL = 'local',     // 1-3 чанка
+  GLOBAL = 'global'    // Весь документ
+}
+
+export interface SemanticAnalysisProgress {
+  type: SemanticUpdateType;
+  totalChunks: number;
+  processedChunks: number;
+  startTime: number;
+  estimatedTimeRemaining?: number;
+  isActive: boolean;
+}
+
+// Расширение для MetricsUpdateQueue
+export interface MetricsUpdateQueue {
+  localUpdates: Set<string>;      // Chunk IDs для локальных метрик
+  contextualUpdates: Set<string>; // Chunk IDs для контекстуальных метрик
+  debounceTimer?: number;
+  semanticUpdateType?: SemanticUpdateType; // Тип текущего обновления
 }
 
 // Утилитарные типы

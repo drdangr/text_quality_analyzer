@@ -16,6 +16,15 @@ from api.models import (
     UpdateTopicRequest,
     ParagraphMetrics,
     # ExportRequest # Пока не используем, экспорт через GET
+    # ===== НОВЫЕ МОДЕЛИ ДЛЯ ЧАНКОВ =====
+    ChunkSemanticRequest,
+    BatchChunkSemanticRequest,
+    ChunkLocalMetricsRequest,
+    BatchChunkLocalMetricsRequest,
+    ChunkSemanticResponse,
+    ChunkLocalMetricsResponse,
+    BatchChunkSemanticResponse,
+    BatchChunkLocalMetricsResponse,
 )
 
 # Оркестратор и сервисы через DI
@@ -24,6 +33,10 @@ from services.session_store import SessionStore
 from services.embedding_service import EmbeddingService, get_embedding_service # get_... для DI
 from services.openai_service import OpenAIService, get_openai_service # get_... для DI
 from services.export_service import ExportService
+
+# Новые функции для анализа чанков
+from analysis.semantic_function import analyze_single_chunk_semantic, analyze_batch_chunks_semantic
+from analysis.signal_strength import analyze_single_chunk_local_metrics, analyze_batch_chunks_local_metrics
 
 # Получаем логгер для этого модуля
 logger = logging.getLogger(__name__)
@@ -383,3 +396,220 @@ async def calculate_text_metrics_endpoint(
     except Exception as e:
         logger.error(f"Ошибка при расчете метрик текста: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# ===== НОВЫЕ ЭНДПОИНТЫ ДЛЯ АРХИТЕКТУРЫ ЧАНКОВ =====
+
+@router.post("/v1/chunk/metrics/semantic-single", response_model=ChunkSemanticResponse, tags=["Chunks V2"])
+async def analyze_chunk_semantic_single_endpoint(
+    request_data: ChunkSemanticRequest = Body(...),
+    openai_service: OpenAIService = Depends(get_openai_service)
+) -> ChunkSemanticResponse:
+    """
+    Анализирует семантическую функцию одного чанка в контексте всего документа.
+    
+    Новая архитектура: frontend управляет текстом, backend только анализирует метрики.
+    """
+    logger.info(f"API /v1/chunk/metrics/semantic-single вызван. Chunk ID: {request_data.chunk_id}")
+    
+    try:
+        # Вызываем функцию анализа одного чанка
+        result = await analyze_single_chunk_semantic(
+            chunk_text=request_data.chunk_text,
+            full_text=request_data.full_text,
+            topic=request_data.topic,
+            openai_service=openai_service
+        )
+        
+        return ChunkSemanticResponse(
+            chunk_id=request_data.chunk_id,
+            metrics=result
+        )
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка в /v1/chunk/metrics/semantic-single для чанка {request_data.chunk_id}: {e}", exc_info=True)
+        
+        # Возвращаем результат с ошибкой
+        return ChunkSemanticResponse(
+            chunk_id=request_data.chunk_id,
+            metrics={
+                "semantic_function": "error_api_call",
+                "semantic_method": "api_single",
+                "semantic_error": f"Endpoint error: {str(e)[:150]}"
+            }
+        )
+
+@router.post("/v1/chunks/metrics/semantic-batch", response_model=BatchChunkSemanticResponse, tags=["Chunks V2"])
+async def analyze_chunks_semantic_batch_endpoint(
+    request_data: BatchChunkSemanticRequest = Body(...),
+    openai_service: OpenAIService = Depends(get_openai_service)
+) -> BatchChunkSemanticResponse:
+    """
+    Пакетный анализ семантических функций чанков с контролем параллельности.
+    
+    Новая архитектура: обрабатывает каждый чанк индивидуально в контексте всего документа.
+    """
+    logger.info(f"API /v1/chunks/metrics/semantic-batch вызван. Чанков: {len(request_data.chunks)}, Параллельность: {request_data.max_parallel}")
+    
+    try:
+        # Вызываем функцию пакетного анализа
+        raw_results = await analyze_batch_chunks_semantic(
+            chunks=request_data.chunks,
+            full_text=request_data.full_text,
+            topic=request_data.topic,
+            openai_service=openai_service,
+            max_parallel=request_data.max_parallel or 1
+        )
+        
+        # Преобразуем результаты в правильный формат
+        results = []
+        failed = []
+        
+        for result in raw_results:
+            chunk_id = result["chunk_id"]
+            metrics = result["metrics"]
+            
+            results.append(ChunkSemanticResponse(
+                chunk_id=chunk_id,
+                metrics=metrics
+            ))
+            
+            # Добавляем в список неудачных, если все метрики None
+            if all(value is None for value in metrics.values()):
+                failed.append(chunk_id)
+        
+        return BatchChunkSemanticResponse(
+            results=results,
+            failed=failed
+        )
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка в /v1/chunks/metrics/semantic-batch: {e}", exc_info=True)
+        
+        # Возвращаем результаты с ошибками для всех чанков
+        failed_results = []
+        all_failed = []
+        
+        for chunk in request_data.chunks:
+            chunk_id = chunk.get("id", "unknown_chunk")
+            failed_results.append(ChunkSemanticResponse(
+                chunk_id=chunk_id,
+                metrics={
+                    "semantic_function": "error_api_call",
+                    "semantic_method": "api_batch",
+                    "semantic_error": f"Batch endpoint error: {str(e)[:100]}"
+                }
+            ))
+            all_failed.append(chunk_id)
+        
+        return BatchChunkSemanticResponse(
+            results=failed_results,
+            failed=all_failed
+        )
+
+@router.post("/v1/chunk/metrics/local", response_model=ChunkLocalMetricsResponse, tags=["Chunks V2"])
+async def analyze_chunk_local_metrics_endpoint(
+    request_data: ChunkLocalMetricsRequest = Body(...),
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+) -> ChunkLocalMetricsResponse:
+    """
+    Анализирует локальные метрики одного чанка: signal_strength, complexity, lix, smog.
+    
+    Новая архитектура: frontend управляет текстом, backend анализирует только метрики.
+    """
+    logger.info(f"[ChunkLocalMetrics] Анализ одного чанка. Длина: {len(request_data.chunk_text)}, Тема: '{request_data.topic[:30]}...'")
+    
+    try:
+        # Вызываем функцию анализа локальных метрик
+        result = analyze_single_chunk_local_metrics(
+            chunk_text=request_data.chunk_text,
+            topic=request_data.topic,
+            embedding_service=embedding_service
+        )
+        
+        logger.info(f"[ChunkLocalMetrics] Анализ завершен: signal={result.get('signal_strength')}, complexity={result.get('complexity')}")
+        
+        return ChunkLocalMetricsResponse(
+            chunk_id="single_chunk",  # Фиктивный ID для совместимости
+            metrics=result
+        )
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка в /v1/chunk/metrics/local: {e}", exc_info=True)
+        
+        # Возвращаем результат с ошибкой
+        return ChunkLocalMetricsResponse(
+            chunk_id="single_chunk_error",
+            metrics={
+                "signal_strength": None,
+                "complexity": None,
+                "lix": None,
+                "smog": None
+            }
+        )
+
+@router.post("/v1/chunks/metrics/batch-local", response_model=BatchChunkLocalMetricsResponse, tags=["Chunks V2"])
+async def analyze_chunks_local_metrics_batch_endpoint(
+    request_data: BatchChunkLocalMetricsRequest = Body(...),
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+) -> BatchChunkLocalMetricsResponse:
+    """
+    Пакетный анализ локальных метрик чанков: signal_strength, complexity, lix, smog.
+    
+    Новая архитектура: обрабатывает каждый чанк индивидуально для быстрых локальных метрик.
+    """
+    logger.info(f"API /v1/chunks/metrics/batch-local вызван. Чанков: {len(request_data.chunks)}")
+    
+    try:
+        # Вызываем функцию пакетного анализа локальных метрик
+        raw_results = analyze_batch_chunks_local_metrics(
+            chunks=request_data.chunks,
+            topic=request_data.topic,
+            embedding_service=embedding_service
+        )
+        
+        # Преобразуем результаты в правильный формат
+        results = []
+        failed = []
+        
+        for result in raw_results:
+            chunk_id = result["chunk_id"]
+            metrics = result["metrics"]
+            
+            results.append(ChunkLocalMetricsResponse(
+                chunk_id=chunk_id,
+                metrics=metrics
+            ))
+            
+            # Добавляем в список неудачных, если все метрики None
+            if all(value is None for value in metrics.values()):
+                failed.append(chunk_id)
+        
+        return BatchChunkLocalMetricsResponse(
+            results=results,
+            failed=failed
+        )
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка в /v1/chunks/metrics/batch-local: {e}", exc_info=True)
+        
+        # Возвращаем результаты с ошибками для всех чанков
+        failed_results = []
+        all_failed = []
+        
+        for chunk in request_data.chunks:
+            chunk_id = chunk.get("id", "unknown_chunk")
+            failed_results.append(ChunkLocalMetricsResponse(
+                chunk_id=chunk_id,
+                metrics={
+                    "signal_strength": None,
+                    "complexity": None,
+                    "lix": None,
+                    "smog": None
+                }
+            ))
+            all_failed.append(chunk_id)
+        
+        return BatchChunkLocalMetricsResponse(
+            results=failed_results,
+            failed=all_failed
+        )

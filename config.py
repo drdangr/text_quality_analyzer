@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     ENABLE_SEMANTIC_ANALYSIS: bool = True
     
     # Настройки для embedding_service
-    MODEL_NAME: str = "intfloat/multilingual-e5-large"
+    MODEL_NAME: str = "ai-forever/sbert_large_nlu_ru"
     EMBEDDING_CACHE_SIZE: int = 1000
     
     # Пути для сохранения файлов

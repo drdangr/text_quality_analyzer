@@ -134,7 +134,7 @@ class EmbeddingService:
             return self.topic_cache[topic_hash]
             
         logger.debug(f"EmbeddingService: Вычисление эмбеддинга для темы: '{topic_text[:50]}...' (будет кэширован). Имя модели: {self.model_name}")
-        topic_input = [f"query: {topic_text}"] # Префикс для E5 моделей
+        topic_input = [topic_text]  # Убрали префикс query: для русской модели
         embedding = self.model.encode(topic_input, convert_to_tensor=True)
         self.topic_cache[topic_hash] = embedding
         # Ограничиваем размер кэша тем (простой FIFO, если превышен лимит)
@@ -162,7 +162,7 @@ class EmbeddingService:
             return cached_embedding
             
         logger.debug(f"EmbeddingService: Вычисление эмбеддинга для абзаца (hash: {text_hash}, text: '{text[:50]}...'). Имя модели: {self.model_name}")
-        passage_input = [f"passage: {text}"] # Префикс для E5 моделей
+        passage_input = [text]  # Убрали префикс passage: для русской модели
         embedding = self.model.encode(passage_input, convert_to_tensor=True)
         self.paragraph_cache.put(text_hash, embedding)
         logger.debug(f"EmbeddingService: Эмбеддинг для абзаца (hash: {text_hash}) сохранен в кэш (размер кэша: {len(self.paragraph_cache)}/{self.cache_size}).")
@@ -235,7 +235,7 @@ class EmbeddingService:
                         final_embeddings_for_batch[j] = cached_embedding
                         cache_hits += 1
                     else:
-                        embeddings_to_process.append(f"passage: {text}")
+                        embeddings_to_process.append(text)
                         original_indices_for_model.append(j)
                 
                 if embeddings_to_process:
@@ -288,7 +288,7 @@ class EmbeddingService:
                 
                 if texts_for_new_embeddings_in_batch:
                     calculated_count += len(texts_for_new_embeddings_in_batch) # Считаем тут
-                    passage_inputs = [f"passage: {p}" for p in texts_for_new_embeddings_in_batch]
+                    passage_inputs = texts_for_new_embeddings_in_batch  # Убрали префикс passage:
                     new_passage_embeddings = self.model.encode(passage_inputs, convert_to_tensor=True, show_progress_bar=False) # type: ignore
                     
                     if new_passage_embeddings.ndim == 1: # Если всего один новый текст

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 # Задаем текст и тему по умолчанию для удобства тестирования
 DEFAULT_TEST_TEXT = ("Эмбеддинги это числовые представления слов. Они очень важны для машинного обучения. Модели лучше понимают смысл.\n\n" 
@@ -97,3 +97,64 @@ class UpdateTopicRequest(BaseModel):
 # Модель для ответа при ошибках (пример)
 # class ErrorResponse(BaseModel):
 #     detail: str
+
+# ===== НОВЫЕ МОДЕЛИ ДЛЯ АРХИТЕКТУРЫ ЧАНКОВ =====
+
+class ChunkSemanticRequest(BaseModel):
+    """Модель запроса для семантического анализа одного чанка."""
+    chunk_id: str = Field(..., description="ID чанка (UUID)")
+    chunk_text: str = Field(..., description="Текст анализируемого чанка")
+    full_text: str = Field(..., description="Полный текст документа для контекста")
+    topic: str = Field(..., description="Тема документа")
+    session_id: Optional[str] = Field(None, description="ID сессии для логирования")
+
+class BatchChunkSemanticRequest(BaseModel):
+    """Модель запроса для пакетного семантического анализа чанков."""
+    chunks: List[Dict[str, str]] = Field(..., description="Список чанков: [{'id': str, 'text': str}, ...]")
+    full_text: str = Field(..., description="Полный текст документа для контекста")
+    topic: str = Field(..., description="Тема документа")
+    session_id: Optional[str] = Field(None, description="ID сессии для логирования")
+    max_parallel: Optional[int] = Field(1, description="Максимальное количество параллельных запросов к OpenAI")
+
+class ChunkLocalMetricsRequest(BaseModel):
+    """Модель запроса для анализа локальных метрик одного чанка."""
+    chunk_text: str = Field(..., description="Текст анализируемого чанка")
+    topic: str = Field(..., description="Тема документа")
+
+class BatchChunkLocalMetricsRequest(BaseModel):
+    """Модель запроса для пакетного анализа локальных метрик чанков."""
+    chunks: List[Dict[str, str]] = Field(..., description="Список чанков: [{'id': str, 'text': str}, ...]")
+    topic: str = Field(..., description="Тема документа")
+
+class ChunkSemanticMetrics(BaseModel):
+    """Модель семантических метрик чанка."""
+    semantic_function: Optional[str] = None
+    semantic_method: str = "api_single"
+    semantic_error: Optional[str] = None
+
+class ChunkLocalMetrics(BaseModel):
+    """Модель локальных метрик чанка."""
+    complexity: Optional[float] = None
+    signal_strength: Optional[float] = None
+    lix: Optional[float] = None
+    smog: Optional[float] = None
+
+class ChunkSemanticResponse(BaseModel):
+    """Модель ответа для семантического анализа одного чанка."""
+    chunk_id: str
+    metrics: ChunkSemanticMetrics
+
+class ChunkLocalMetricsResponse(BaseModel):
+    """Модель ответа для локальных метрик одного чанка."""
+    chunk_id: str
+    metrics: ChunkLocalMetrics
+
+class BatchChunkSemanticResponse(BaseModel):
+    """Модель ответа для пакетного семантического анализа."""
+    results: List[ChunkSemanticResponse]
+    failed: List[str] = Field(default_factory=list, description="IDs чанков, для которых анализ не удался")
+
+class BatchChunkLocalMetricsResponse(BaseModel):
+    """Модель ответа для пакетного анализа локальных метрик."""
+    results: List[ChunkLocalMetricsResponse]
+    failed: List[str] = Field(default_factory=list, description="IDs чанков, для которых анализ не удался")

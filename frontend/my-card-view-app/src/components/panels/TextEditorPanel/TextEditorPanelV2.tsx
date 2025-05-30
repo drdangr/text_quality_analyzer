@@ -7,83 +7,6 @@ import { useDocumentStore } from '../../../store/documentStore'
 import { useClipboard } from '../../../hooks/usePanelSync'
 import type { ChangeInfo } from '../../../types/chunks'
 
-// Компонент общих метрик документа
-const DocumentMetrics: React.FC<{
-  document: any
-  isVisible: boolean
-}> = ({ document, isVisible }) => {
-  if (!isVisible || !document?.chunks) return null
-
-  // Вычисляем средние значения метрик
-  const chunks = document.chunks
-  const validSignalChunks = chunks.filter((c: any) => c.metrics.signal_strength !== undefined && c.metrics.signal_strength !== null)
-  const validComplexityChunks = chunks.filter((c: any) => c.metrics.complexity !== undefined && c.metrics.complexity !== null)
-  
-  const avgSignal = validSignalChunks.length > 0 
-    ? validSignalChunks.reduce((sum: number, c: any) => sum + c.metrics.signal_strength, 0) / validSignalChunks.length
-    : 0
-
-  const avgComplexity = validComplexityChunks.length > 0
-    ? validComplexityChunks.reduce((sum: number, c: any) => sum + c.metrics.complexity, 0) / validComplexityChunks.length
-    : 0
-
-  // Примерное время чтения (средняя скорость чтения 200 слов в минуту)
-  const wordCount = document.text.split(/\s+/).filter((word: string) => word.length > 0).length
-  const readingTimeMinutes = Math.ceil(wordCount / 200)
-
-  return (
-    <div style={{
-      padding: '12px 16px',
-      backgroundColor: '#f8fafc',
-      borderBottom: '1px solid #e2e8f0',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      fontSize: '14px',
-      color: '#475569'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontWeight: '600' }}>📊 Общие метрики:</span>
-        </div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>🎯 Сигнал/шум:</span>
-          <span style={{ 
-            fontWeight: '600',
-            color: avgSignal > 0.7 ? '#059669' : avgSignal > 0.5 ? '#d97706' : '#dc2626'
-          }}>
-            {avgSignal.toFixed(2)}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>🧠 Сложность:</span>
-          <span style={{ 
-            fontWeight: '600',
-            color: avgComplexity < 0.3 ? '#059669' : avgComplexity < 0.7 ? '#d97706' : '#dc2626'
-          }}>
-            {avgComplexity.toFixed(2)}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>⏱️ Время чтения:</span>
-          <span style={{ fontWeight: '600', color: '#1e40af' }}>
-            ~{readingTimeMinutes} мин
-          </span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '12px', color: '#64748b' }}>
-        <span>📝 {wordCount} слов</span>
-        <span>🧩 {chunks.length} чанков</span>
-        <span>📄 {document.text.length} символов</span>
-      </div>
-    </div>
-  )
-}
-
 interface TextEditorPanelV2Props {
   icon?: string
   isExpanded?: boolean
@@ -101,6 +24,7 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
   const [editorTopic, setEditorTopic] = useState<string>('')
   const [showEditorSettings, setShowEditorSettings] = useState<boolean>(false)
   const [editorText, setEditorText] = useState<string>('') // Локальное состояние текста
+  const [lastCursorPosition, setLastCursorPosition] = useState<number>(0) // Позиция курсора
   
   // Используем documentStore напрямую
   const { 
@@ -109,6 +33,8 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
     error,
     initializeDocument,
     updateText,
+    updateChunkMetrics,
+    queueMetricsUpdate,
   } = useDocumentStore()
 
   const { pasteFromClipboard } = useClipboard()
@@ -117,32 +43,265 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
   const currentText = document?.text || editorText
   const chunksCount = document?.chunks.length || 0
 
-  const handleTextChange = (newText: string) => {
-    // Получаем актуальное состояние store напрямую
-    const storeState = useDocumentStore.getState()
-    const actualDocument = storeState.document
+  // Вспомогательная функция для поиска различий между текстами
+  const findTextDifference = (oldText: string, newText: string): ChangeInfo => {
+    // Простой алгоритм поиска различий
+    let start = 0;
+    let oldEnd = oldText.length;
+    let newEnd = newText.length;
+
+    // Находим начало различий
+    while (start < Math.min(oldText.length, newText.length) && 
+           oldText[start] === newText[start]) {
+      start++;
+    }
+
+    // Находим конец различий (идем с конца)
+    while (oldEnd > start && newEnd > start && 
+           oldText[oldEnd - 1] === newText[newEnd - 1]) {
+      oldEnd--;
+      newEnd--;
+    }
+
+    // Извлекаем измененную часть
+    const changedOldText = oldText.slice(start, oldEnd);
+    const changedNewText = newText.slice(start, newEnd);
+
+    return {
+      start,
+      end: oldEnd,
+      oldText: changedOldText,
+      newText: changedNewText
+    };
+  };
+
+  // Функция для определения чанка по позиции курсора
+  const findChunkAtPosition = (position: number) => {
+    if (!document?.chunks) {
+      console.log('❌ findChunkAtPosition: нет документа или чанков');
+      return undefined;
+    }
     
-    // Обновляем локальное состояние
-    setEditorText(newText)
+    console.log('🔍 findChunkAtPosition поиск:', {
+      position,
+      chunksCount: document.chunks.length,
+      documentTextLength: document.text.length,
+      availableChunks: document.chunks.map(c => ({
+        id: c.id.slice(0, 8),
+        start: c.start,
+        end: c.end,
+        contains: position >= c.start && position <= c.end,
+        text: document.text.slice(c.start, c.end).substring(0, 30) + '...'
+      }))
+    });
+    
+    // Основной поиск по точной позиции
+    let foundChunk = document.chunks.find(chunk => 
+      position >= chunk.start && position <= chunk.end
+    );
+    
+    // FALLBACK 1: Если не найден, ищем ближайший чанк
+    if (!foundChunk) {
+      console.log('⚠️ Точный чанк не найден, ищем ближайший...');
+      
+      // Ищем чанк, который заканчивается ближе всего к позиции
+      let closestChunk = undefined;
+      let minDistance = Infinity;
+      
+      for (const chunk of document.chunks) {
+        const distanceToStart = Math.abs(position - chunk.start);
+        const distanceToEnd = Math.abs(position - chunk.end);
+        const minDist = Math.min(distanceToStart, distanceToEnd);
+        
+        if (minDist < minDistance) {
+          minDistance = minDist;
+          closestChunk = chunk;
+        }
+      }
+      
+      foundChunk = closestChunk;
+      
+      if (foundChunk) {
+        console.log('🎯 Найден ближайший чанк:', {
+          chunkId: foundChunk.id.slice(0, 8),
+          distance: minDistance,
+          chunkStart: foundChunk.start,
+          chunkEnd: foundChunk.end,
+          searchPosition: position
+        });
+      }
+    }
+    
+    // FALLBACK 2: Если все еще не найден, берем последний чанк
+    if (!foundChunk && document.chunks.length > 0) {
+      foundChunk = document.chunks[document.chunks.length - 1];
+      console.log('🔄 Используем последний чанк как fallback:', {
+        chunkId: foundChunk.id.slice(0, 8),
+        searchPosition: position,
+        lastChunkEnd: foundChunk.end
+      });
+    }
+    
+    console.log('🎯 findChunkAtPosition результат:', {
+      position,
+      foundChunk: foundChunk ? {
+        id: foundChunk.id.slice(0, 8),
+        start: foundChunk.start,
+        end: foundChunk.end,
+        method: position >= foundChunk.start && position <= foundChunk.end ? 'exact' : 'fallback'
+      } : undefined
+    });
+    
+    return foundChunk;
+  };
+
+  // Функция для определения, нужно ли запускать семантический анализ
+  const shouldTriggerSemanticAnalysis = (newText: string, changeInfo: ChangeInfo): boolean => {
+    const addedText = changeInfo.newText;
+    
+    console.log('🤔 shouldTriggerSemanticAnalysis проверка:', {
+      hasAddedText: !!addedText,
+      addedText: JSON.stringify(addedText),
+      addedTextLength: addedText?.length || 0,
+      changeInfo: {
+        start: changeInfo.start,
+        end: changeInfo.end,
+        oldText: JSON.stringify(changeInfo.oldText),
+        newText: JSON.stringify(changeInfo.newText)
+      }
+    });
+    
+    // Проверяем, что добавлен текст (не удаление)
+    if (!addedText) {
+      console.log('❌ shouldTriggerSemanticAnalysis: нет добавленного текста');
+      return false;
+    }
+    
+    // Запускаем анализ при вводе пробела или знаков препинания
+    const triggerChars = [' ', '.', '!', '?', ',', ';', ':', '\n'];
+    const hasTriggerChar = triggerChars.some(char => addedText.includes(char));
+    
+    console.log('🔍 shouldTriggerSemanticAnalysis результат:', {
+      triggerChars,
+      addedText: JSON.stringify(addedText),
+      hasTriggerChar,
+      matchedChars: triggerChars.filter(char => addedText.includes(char))
+    });
+    
+    return hasTriggerChar;
+  };
+
+  const handleTextChange = (newText: string, changeInfo?: ChangeInfo, cursorPosition?: number) => {
+    console.log('⌨️ Мгновенный ввод текста в Monaco:', { 
+      length: newText.length, 
+      cursorPosition: cursorPosition || 0,
+      preview: newText.substring(0, 30) + '...' 
+    });
+    
+    // Мгновенно обновляем локальное состояние для отзывчивости UI
+    setEditorText(newText);
+    
+    // Сохраняем позицию курсора
+    if (cursorPosition !== undefined) {
+      setLastCursorPosition(cursorPosition);
+    }
+    
+    // Получаем актуальное состояние store напрямую
+    const storeState = useDocumentStore.getState();
+    const actualDocument = storeState.document;
     
     if (!actualDocument) {
       // Нет документа - нужны текст И тема для создания
       if (newText.trim() && editorTopic.trim()) {
-        console.log('🆕 Инициализация нового документа')
-        initializeDocument(newText, editorTopic)
+        console.log('🆕 Мгновенная инициализация нового документа');
+        initializeDocument(newText, editorTopic);
       } else {
-        console.log('⏭️ Пропускаем создание: недостаточно данных для нового документа')
+        console.log('⏭️ Пропускаем создание: недостаточно данных для нового документа');
+      }
+      return;
+    }
+
+    // Есть документ - обновляем мгновенно
+    if (newText.trim()) {
+      console.log('🔄 Мгновенное обновление существующего документа');
+      
+      // Создаем точный ChangeInfo с поиском различий
+      const oldText = actualDocument.text;
+      const textChangeInfo = findTextDifference(oldText, newText);
+      
+      console.log('📝 ChangeInfo создан:', {
+        start: textChangeInfo.start,
+        end: textChangeInfo.end,
+        oldTextLength: textChangeInfo.oldText.length,
+        newTextLength: textChangeInfo.newText.length,
+        cursorPosition: cursorPosition || 0,
+        oldText: JSON.stringify(textChangeInfo.oldText.substring(0, 50) + (textChangeInfo.oldText.length > 50 ? '...' : '')),
+        newText: JSON.stringify(textChangeInfo.newText.substring(0, 50) + (textChangeInfo.newText.length > 50 ? '...' : ''))
+      });
+      
+      // Мгновенно обновляем документ
+      updateText(newText, textChangeInfo);
+      
+      // Проверяем, нужно ли запускать семантический анализ
+      console.log('🔍 ПРОВЕРКА семантического анализа:', {
+        willCheck: true,
+        textChangeInfo: {
+          start: textChangeInfo.start,
+          end: textChangeInfo.end,
+          oldText: textChangeInfo.oldText,
+          newText: textChangeInfo.newText
+        }
+      });
+      
+      const shouldTrigger = shouldTriggerSemanticAnalysis(newText, textChangeInfo);
+      
+      console.log('🎯 РЕЗУЛЬТАТ проверки shouldTriggerSemanticAnalysis:', {
+        shouldTrigger,
+        textChangeInfo,
+        newText: newText.length + ' символов'
+      });
+      
+      if (shouldTrigger) {
+        console.log('✅ ТРИГГЕР СРАБОТАЛ - запускаем семантический анализ');
+        
+        // Используем позицию курсора для более точного определения чанка
+        const searchPosition = cursorPosition !== undefined ? cursorPosition : textChangeInfo.start;
+        console.log('🔍 ПОИСК чанка по позиции:', {
+          cursorPosition,
+          textChangeInfoStart: textChangeInfo.start,
+          selectedSearchPosition: searchPosition
+        });
+        
+        const editedChunk = findChunkAtPosition(searchPosition);
+        
+        if (editedChunk) {
+          console.log('🎯 ЧАНК НАЙДЕН - запускаем анализ:', {
+            chunkId: editedChunk.id.slice(0, 8),
+            searchPosition,
+            cursorPosition,
+            changeStart: textChangeInfo.start,
+            trigger: textChangeInfo.newText
+          });
+          
+          // Запускаем анализ только для этого чанка
+          console.log('📋 ВЫЗЫВАЕМ queueMetricsUpdate...');
+          queueMetricsUpdate(editedChunk.id, 'contextual');
+          console.log('✅ queueMetricsUpdate ВЫЗВАНА для чанка:', editedChunk.id.slice(0, 8));
+        } else {
+          console.log('❌ ЧАНК НЕ НАЙДЕН:', {
+            searchPosition,
+            cursorPosition,
+            changeStart: textChangeInfo.start,
+            availableChunks: actualDocument.chunks.map(c => ({ id: c.id.slice(0, 8), start: c.start, end: c.end }))
+          });
+        }
+      } else {
+        console.log('❌ ТРИГГЕР НЕ СРАБОТАЛ - семантический анализ НЕ запускается');
       }
     } else {
-      // Есть документ - обновляем если есть текст (тема уже не важна)
-      if (newText.trim()) {
-        console.log('🔄 Обновление существующего документа через updateText')
-        updateText(newText) // Убираем changeInfo
-      } else {
-        console.log('⏭️ Пропускаем обновление: пустой текст')
-      }
+      console.log('⏭️ Пропускаем обновление: пустой текст');
     }
-  }
+  };
 
   const handleAnalyze = useCallback(async () => {
     const textToAnalyze = currentText.trim()
@@ -206,21 +365,50 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
       })
       
       if (text) {
+        console.log('📁 Загрузка файла - создание нового документа')
         setEditorText(text) // Обновляем локальное состояние
-        handleTextChange(text)
+        
+        // Для загрузки файла всегда требуется тема
+        if (editorTopic.trim()) {
+          console.log('🆕 Инициализация документа из файла')
+          initializeDocument(text, editorTopic)
+        } else {
+          console.log('⚠️ Текст загружен, но нужна тема для анализа')
+          setShowTopicHint(true)
+          setTimeout(() => setShowTopicHint(false), 3000)
+        }
       }
     } catch (error) {
       setFileError('Ошибка при чтении файла')
     }
-  }, [handleTextChange])
+  }, [editorTopic, initializeDocument])
 
   const handlePaste = useCallback(async () => {
     const text = await pasteFromClipboard()
     if (text) {
+      console.log('📋 Вставка из клипборда')
       setEditorText(text) // Обновляем локальное состояние  
-      handleTextChange(text)
+      
+      // Для вставки из клипборда тоже требуется тема если документа нет
+      const storeState = useDocumentStore.getState()
+      const actualDocument = storeState.document
+      
+      if (!actualDocument) {
+        if (editorTopic.trim()) {
+          console.log('🆕 Инициализация документа из клипборда')
+          initializeDocument(text, editorTopic)
+        } else {
+          console.log('⚠️ Текст вставлен, но нужна тема для анализа')
+          setShowTopicHint(true)
+          setTimeout(() => setShowTopicHint(false), 3000)
+        }
+      } else {
+        // Если документ уже есть, используем обычное обновление с классификацией
+        console.log('🔄 Обновление документа через вставку')
+        handleTextChange(text, undefined, undefined) // Вставка не имеет позиции курсора
+      }
     }
-  }, [pasteFromClipboard, handleTextChange])
+  }, [pasteFromClipboard, editorTopic, initializeDocument, handleTextChange])
 
   const headerControls = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -431,12 +619,6 @@ export const TextEditorPanelV2: React.FC<TextEditorPanelV2Props> = ({
         flexDirection: 'column', 
         padding: '16px'
       }}>
-        {/* Общие метрики документа */}
-        <DocumentMetrics 
-          document={document}
-          isVisible={!!document && document.chunks.length > 0}
-        />
-
         <div style={{ 
           flexShrink: 0,
           marginBottom: '16px',
