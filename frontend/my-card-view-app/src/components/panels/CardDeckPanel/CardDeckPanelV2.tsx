@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Panel } from '../Panel'
 import { useDocumentStore } from '../../../store/documentStore'
+import type { Chunk } from '../../../types/chunks'
 import {
   DndContext,
   DragOverlay,
@@ -37,6 +38,7 @@ const SortableChunkCard: React.FC<{
   onDeleteRequest: (chunkId: string) => void
   fontSize: string
   fontFamily: string
+  enableRealtimeSemantic?: boolean
 }> = (props) => {
   const {
     attributes,
@@ -79,6 +81,7 @@ const ChunkCard: React.FC<{
   fontFamily: string
   dragHandleProps?: any
   isDragging?: boolean
+  enableRealtimeSemantic?: boolean
 }> = ({ 
   chunk, 
   chunkText,
@@ -92,7 +95,8 @@ const ChunkCard: React.FC<{
   fontSize,
   fontFamily,
   dragHandleProps,
-  isDragging
+  isDragging,
+  enableRealtimeSemantic = true
 }) => {
   const isSelected = selectedChunkId === chunk.id
   
@@ -190,6 +194,21 @@ const ChunkCard: React.FC<{
           
           {(() => {
             // УПРОЩЕННАЯ ЛОГИКА ОТОБРАЖЕНИЯ
+            if (!enableRealtimeSemantic && !chunk.metrics.semantic_function) {
+              return (
+                <span style={{ 
+                  color: '#dc2626',
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  backgroundColor: '#fef2f2',
+                  borderRadius: '3px',
+                  border: '1px solid #fecaca'
+                }}>
+                  🚫 Real-time выкл
+                </span>
+              );
+            }
+            
             if (chunk.metrics.isUpdating) {
               return (
                 <span style={{ 
@@ -370,6 +389,23 @@ const HeatMapGrid: React.FC<{
   )
 }
 
+// Компонент карточки абзаца
+interface ChunkCardProps {
+  chunk: Chunk;
+  index: number;
+  isSelected: boolean;
+  isHovered: boolean;
+  onSelect: () => void;
+  onHover: () => void;
+  onDrop: (e: React.DragEvent, targetIndex: number) => void;
+  onDragStart: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
+  onDelete: () => void;
+  signalColor: string;
+  complexityColor: string;
+  enableRealtimeSemantic?: boolean;
+}
+
 export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({ 
   icon, 
   isExpanded, 
@@ -397,6 +433,8 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
     mergeChunks,
     reorderChunks
   } = useDocumentStore()
+  
+  const enableRealtimeSemantic = useDocumentStore(state => state.ui.enableRealtimeSemantic)
 
   console.log('🃏 CardDeckPanelV2 ре-рендер:', {
     hasDocument: !!document,
@@ -1010,6 +1048,7 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
                     onDeleteRequest={handleDeleteRequest}
                     fontSize={fontSize}
                     fontFamily={fontFamily}
+                    enableRealtimeSemantic={enableRealtimeSemantic}
                   />
                 </div>
               ))}
@@ -1044,6 +1083,7 @@ export const CardDeckPanelV2: React.FC<CardDeckPanelV2Props> = ({
               fontSize={fontSize}
               fontFamily={fontFamily}
               isDragging={true}
+              enableRealtimeSemantic={enableRealtimeSemantic}
             />
           ) : null}
         </DragOverlay>

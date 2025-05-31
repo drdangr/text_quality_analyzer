@@ -1,6 +1,7 @@
 import React from 'react';
 import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { TextEditorPanelV2 } from './components/panels/TextEditorPanel/TextEditorPanelV2'
 import { CardDeckPanelV2 } from './components/panels/CardDeckPanel/CardDeckPanelV2'
 import { SemanticMapPanel } from './components/panels/SemanticMapPanel'
@@ -198,6 +199,11 @@ function App() {
     error, 
     semanticProgress
   } = useDocumentStore()
+  
+  // Получаем состояние и действия для переключателя
+  const enableRealtimeSemantic = useDocumentStore(state => state.ui.enableRealtimeSemantic)
+  const toggleRealtimeSemantic = useDocumentStore(state => state.toggleRealtimeSemantic)
+  const forceSemanticAnalysis = useDocumentStore(state => state.forceSemanticAnalysis)
 
   // Отладка состояния semanticProgress
   console.log('🎯 App render - semanticProgress состояние:', {
@@ -316,120 +322,222 @@ function App() {
   }
 
   return (
-    <div style={{ 
-      height: '100vh', 
-      backgroundColor: '#f3f4f6',
-      display: 'flex',
-      flexDirection: 'column' 
-    }}>
-      {/* Global Header */}
-      <header style={{
-        backgroundColor: 'white',
-        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
-        borderBottom: '1px solid #e5e7eb',
-        padding: '12px 24px',
-        flexShrink: 0,
-        position: 'relative'
+    <div className="app">
+      {/* Условный рендеринг TestChunks компонента */}
+      {isTestMode && <TestChunks />}
+      <div style={{ 
+        height: '100vh', 
+        backgroundColor: '#f3f4f6',
+        display: 'flex',
+        flexDirection: 'column' 
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <h1 style={{ 
-              fontSize: '1.25rem', 
-              fontWeight: 600, 
-              color: '#1f2937',
-              margin: 0 
-            }}>
-              {document?.metadata.topic || 'Анализатор текста'}
-            </h1>
+        {/* Global Header */}
+        <header style={{
+          backgroundColor: 'white',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+          borderBottom: '1px solid #e5e7eb',
+          padding: '12px 24px',
+          flexShrink: 0,
+          position: 'relative'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <h1 style={{ 
+                fontSize: '1.25rem', 
+                fontWeight: 600, 
+                color: '#1f2937',
+                margin: 0 
+              }}>
+                {document?.metadata.topic || 'Анализатор текста'}
+              </h1>
+              
+              {/* Интегрированные метрики документа */}
+              {document && (
+                <DocumentMetrics 
+                  document={document}
+                />
+              )}
+            </div>
             
-            {/* Интегрированные метрики документа */}
-            {document && (
-              <DocumentMetrics 
-                document={document}
-              />
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Переключатель Real-time семантического анализа */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: '#f3f4f6',
+                borderRadius: '8px',
+                padding: '6px 12px',
+                marginRight: '8px'
+              }}>
+                <span style={{ 
+                  fontSize: '13px', 
+                  color: '#4b5563',
+                  fontWeight: '500',
+                  whiteSpace: 'nowrap'
+                }}>
+                  Real-time анализ
+                </span>
+                <label style={{
+                  position: 'relative',
+                  display: 'inline-block',
+                  width: '40px',
+                  height: '22px',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={enableRealtimeSemantic}
+                    onChange={toggleRealtimeSemantic}
+                    style={{
+                      opacity: 0,
+                      width: 0,
+                      height: 0
+                    }}
+                  />
+                  <span style={{
+                    position: 'absolute',
+                    cursor: 'pointer',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: enableRealtimeSemantic ? '#10b981' : '#d1d5db',
+                    transition: '0.3s',
+                    borderRadius: '22px'
+                  }}>
+                    <span style={{
+                      position: 'absolute',
+                      content: '',
+                      height: '16px',
+                      width: '16px',
+                      left: enableRealtimeSemantic ? '21px' : '3px',
+                      bottom: '3px',
+                      backgroundColor: 'white',
+                      transition: '0.3s',
+                      borderRadius: '50%'
+                    }}></span>
+                  </span>
+                </label>
+              </div>
+
+              {/* Кнопка принудительного анализа (только когда real-time выключен) */}
+              {!enableRealtimeSemantic && document && (
+                <button
+                  onClick={() => {
+                    forceSemanticAnalysis();
+                    toast.success('Семантический анализ запущен для всех чанков', {
+                      icon: '🧠',
+                      duration: 3000,
+                    });
+                  }}
+                  style={{
+                    padding: '6px 16px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginRight: '16px'
+                  }}
+                  title="Запустить семантический анализ для всех чанков"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#2563eb';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#3b82f6';
+                  }}
+                >
+                  🧠 Анализировать
+                </button>
+              )}
+              
+              {error && (
+                <div style={{ 
+                  color: '#dc2626', 
+                  fontSize: '0.875rem', 
+                  maxWidth: '24rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  Ошибка: {error}
+                </div>
+              )}
+            </div>
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {error && (
-              <div style={{ 
-                color: '#dc2626', 
-                fontSize: '0.875rem', 
-                maxWidth: '24rem',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
-                Ошибка: {error}
-              </div>
-            )}
+          {/* Прогресс-бар семантического анализа */}
+          {semanticProgress && (
+            <SemanticAnalysisProgressBar progress={semanticProgress} />
+          )}
+        </header>
+
+        {/* Panels Container */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'row',
+          overflow: 'hidden',
+          width: '100%',
+          minHeight: 0,
+          alignItems: 'stretch'
+        }}>
+          {/* Text Editor Panel */}
+          <div style={getPanelStyle('editor')}>
+            <TextEditorPanelV2 
+              icon="🧩" 
+              isExpanded={!collapsedPanels.editor}
+              onToggleExpanded={() => togglePanel('editor')}
+            />
+          </div>
+
+          {/* Resizer 1 - между editor и cards */}
+          {!collapsedPanels.editor && !collapsedPanels.cards && (
+            <PanelResizer onResize={handleEditorResize} />
+          )}
+
+          {/* Cards Panel */}
+          <div style={getPanelStyle('cards')}>
+            <CardDeckPanelV2 
+              icon="🃏" 
+              isExpanded={!collapsedPanels.cards}
+              onToggleExpanded={() => togglePanel('cards')}
+            />
+          </div>
+
+          {/* Resizer 2 - между cards и semantic */}
+          {!collapsedPanels.cards && !collapsedPanels.semantic && (
+            <PanelResizer onResize={handleCardsResize} />
+          )}
+
+          {/* Semantic Map Panel */}
+          <div style={getPanelStyle('semantic')}>
+            <SemanticMapPanel 
+              icon="🧠" 
+              isExpanded={!collapsedPanels.semantic}
+              onToggleExpanded={() => togglePanel('semantic')}
+            />
           </div>
         </div>
-        
-        {/* Прогресс-бар семантического анализа */}
-        {semanticProgress && (
-          <SemanticAnalysisProgressBar progress={semanticProgress} />
-        )}
-      </header>
 
-      {/* Panels Container */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'row',
-        overflow: 'hidden',
-        width: '100%',
-        minHeight: 0,
-        alignItems: 'stretch'
-      }}>
-        {/* Text Editor Panel */}
-        <div style={getPanelStyle('editor')}>
-          <TextEditorPanelV2 
-            icon="🧩" 
-            isExpanded={!collapsedPanels.editor}
-            onToggleExpanded={() => togglePanel('editor')}
-          />
-        </div>
-
-        {/* Resizer 1 - между editor и cards */}
-        {!collapsedPanels.editor && !collapsedPanels.cards && (
-          <PanelResizer onResize={handleEditorResize} />
-        )}
-
-        {/* Cards Panel */}
-        <div style={getPanelStyle('cards')}>
-          <CardDeckPanelV2 
-            icon="🃏" 
-            isExpanded={!collapsedPanels.cards}
-            onToggleExpanded={() => togglePanel('cards')}
-          />
-        </div>
-
-        {/* Resizer 2 - между cards и semantic */}
-        {!collapsedPanels.cards && !collapsedPanels.semantic && (
-          <PanelResizer onResize={handleCardsResize} />
-        )}
-
-        {/* Semantic Map Panel */}
-        <div style={getPanelStyle('semantic')}>
-          <SemanticMapPanel 
-            icon="🧠" 
-            isExpanded={!collapsedPanels.semantic}
-            onToggleExpanded={() => togglePanel('semantic')}
-          />
-        </div>
+        {/* Toast Notifications */}
+        <Toaster 
+          position="bottom-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              fontSize: '14px',
+            }
+          }}
+        />
       </div>
-
-      {/* Toast Notifications */}
-      <Toaster 
-        position="bottom-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            fontSize: '14px',
-          }
-        }}
-      />
     </div>
   )
 }

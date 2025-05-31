@@ -36,6 +36,9 @@ interface UIState {
   hoveredChunk: string | null;
   showEditorSettings: boolean;
   
+  // Настройки анализа
+  enableRealtimeSemantic: boolean;  // Новый флаг для real-time семантического анализа
+  
   // Настройки отображения
   fontSize: number;
   fontFamily: string;
@@ -95,7 +98,11 @@ interface AppState {
   // UI действия
   setSelectedChunk: (chunkId: string | null) => void;
   setHoveredChunk: (chunkId: string | null) => void;
+  toggleRealtimeSemantic: () => void;
   updateUISettings: (settings: Partial<UIState>) => void;
+  
+  // Принудительный семантический анализ
+  forceSemanticAnalysis: () => void;
   
   // Утилиты
   getChunkText: (chunkId: string) => string;
@@ -103,12 +110,30 @@ interface AppState {
   getFilteredAndSortedChunks: () => Chunk[];
 }
 
+// Функция загрузки UI настроек из localStorage
+const loadUISettings = (): Partial<UIState> => {
+  const settings: Partial<UIState> = {};
+  
+  // Загружаем real-time семантический анализ
+  const savedRealtimeSemantic = localStorage.getItem('enableRealtimeSemantic');
+  if (savedRealtimeSemantic !== null) {
+    try {
+      settings.enableRealtimeSemantic = JSON.parse(savedRealtimeSemantic);
+    } catch (e) {
+      console.error('Ошибка загрузки настройки enableRealtimeSemantic из localStorage:', e);
+    }
+  }
+  
+  return settings;
+};
+
 // Константы по умолчанию
 const DEFAULT_UI_STATE: UIState = {
   activePanel: 'editor',
   selectedChunks: [],
   hoveredChunk: null,
   showEditorSettings: false,
+  enableRealtimeSemantic: true, // По умолчанию включено
   fontSize: 12,
   fontFamily: 'Arial, sans-serif',
   signalMinColor: '#FFFFFF',
@@ -118,7 +143,8 @@ const DEFAULT_UI_STATE: UIState = {
   sortField: 'position',
   sortDirection: 'asc',
   semanticFilter: 'all',
-  searchQuery: ''
+  searchQuery: '',
+  ...loadUISettings() // Загружаем сохраненные настройки
 };
 
 const DEFAULT_METRICS_QUEUE: MetricsUpdateQueue = {
@@ -618,6 +644,22 @@ export const useDocumentStore = create<AppState>()(
 
           // === ЭТАП 2: СЕМАНТИЧЕСКИЙ АНАЛИЗ (АСИНХРОННО) ===
           if (contextualUpdatesCopy.size > 0) {
+            // Проверяем флаг real-time семантического анализа
+            const enableRealtimeSemantic = state.ui.enableRealtimeSemantic;
+            
+            if (!enableRealtimeSemantic) {
+              console.log('🚫 Real-time семантический анализ отключен пользователем');
+              // Снимаем флаги isUpdating для семантических чанков
+              contextualUpdatesCopy.forEach(chunkId => {
+                try {
+                  get().updateChunkMetrics(chunkId, { isUpdating: false });
+                } catch (flagError) {
+                  console.warn(`Ошибка снятия флага обновления для семантического чанка ${chunkId}:`, flagError);
+                }
+              });
+              return;
+            }
+            
             console.log(`🧠 ЭТАП 2: Запуск асинхронного семантического анализа ${contextualUpdatesCopy.size} чанков (semantic_function)`);
             console.log('🧠 ДЕТАЛИ семантического анализа:', {
               contextualChunks: Array.from(contextualUpdatesCopy),
@@ -976,6 +1018,21 @@ export const useDocumentStore = create<AppState>()(
         }));
       },
 
+      toggleRealtimeSemantic: () => {
+        set(state => {
+          const newValue = !state.ui.enableRealtimeSemantic;
+          // Сохраняем в localStorage
+          localStorage.setItem('enableRealtimeSemantic', JSON.stringify(newValue));
+          
+          return {
+            ui: {
+              ...state.ui,
+              enableRealtimeSemantic: newValue
+            }
+          };
+        });
+      },
+
       updateUISettings: (settings: Partial<UIState>) => {
         set(state => ({
           ui: {
@@ -1093,6 +1150,54 @@ export const useDocumentStore = create<AppState>()(
           semanticProgress: null
         });
         console.log(`✅ Прогресс-бар скрыт`);
+      },
+
+      // === ПРИНУДИТЕЛЬНЫЙ СЕМАНТИЧЕСКИЙ АНАЛИЗ ===
+      forceSemanticAnalysis: () => {
+        const state = get();
+        if (!state.document || !state.document.chunks || state.document.chunks.length === 0) {
+          console.warn('Нет документа или чанков для анализа');
+          return;
+        }
+
+        console.log('🚀 Принудительный запуск семантического анализа');
+        
+        // Устанавливаем тип семантического обновления в GLOBAL
+        set(state => ({
+          metricsQueue: {
+            ...state.metricsQueue,
+            semanticUpdateType: SemanticUpdateType.GLOBAL
+          }
+        }));
+        
+        // Добавляем все чанки в очередь семантического анализа
+        state.document.chunks.forEach(chunk => {
+          get().queueMetricsUpdate(chunk.id, 'contextual');
+        });
+        
+        // Временно включаем real-time анализ для обработки очереди
+        const wasRealtimeEnabled = state.ui.enableRealtimeSemantic;
+        if (!wasRealtimeEnabled) {
+          set(state => ({
+            ui: {
+              ...state.ui,
+              enableRealtimeSemantic: true
+            }
+          }));
+          
+          // Восстанавливаем состояние флага после обработки очереди
+          setTimeout(() => {
+            set(state => ({
+              ui: {
+                ...state.ui,
+                enableRealtimeSemantic: wasRealtimeEnabled
+              }
+            }));
+            // Не сохраняем в localStorage, так как это временное изменение
+          }, 1000);
+        }
+        
+        console.log(`📊 Добавлено ${state.document.chunks.length} чанков в очередь семантического анализа`);
       }
     })),
     {

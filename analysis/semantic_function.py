@@ -140,9 +140,20 @@ def _create_api_prompt_messages(topic_prompt: str, numbered_text_block: str) -> 
     roles_description_str = "\n".join(roles_description_parts)
     system_prompt_content = "Ты — опытный языковой аналитик и редактор. Твоя задача - классифицировать предоставленные абзацы текста по их семантической роли."
     user_prompt_content = (
-        f"Задание: Определи одну или, если это абсолютно необходимо, две наиболее подходящие семантические роли для КАЖДОГО абзаца из списка ниже. Используй ТОЛЬКО роли из предоставленного списка.\n\n"
+        f"Задание: Определи одну или, если это абсолютно необходимо, две РАЗНЫЕ семантические роли для КАЖДОГО абзаца из списка ниже.\n\n"
+        f"ВАЖНЫЕ ПРАВИЛА:\n"
+        f"1. Используй ТОЛЬКО роли из предоставленного списка\n"
+        f"2. НЕ дублируй одну и ту же роль для одного абзаца\n"
+        f"3. Если абзац имеет несколько функций, выбери максимум ДВЕ самые важные РАЗНЫЕ роли\n\n"
         f"Возможные роли:\n{roles_description_str}\n\n"
-        f"Формат ответа: для каждого абзаца предоставь его номер и через точку одну или две роли. Каждая роль на новой строке. Например:\n1. Раскрытие темы\n2. Пояснение на примере / Лирическое отступление\n3. Шум\n\n"
+        f"Формат ответа: для каждого абзаца предоставь его номер и через точку одну или две роли. Каждая роль на новой строке.\n\n"
+        f"ПРАВИЛЬНЫЕ примеры:\n"
+        f"1. раскрытие темы\n"
+        f"2. пояснение на примере / лирическое отступление\n"
+        f"3. шум\n\n"
+        f"НЕПРАВИЛЬНЫЕ примеры:\n"
+        f"1. юмор или ирония или сарказм / юмор или ирония или сарказм\n"
+        f"2. Это пояснение на примере\n\n"
         f"Текст для анализа:\n{numbered_text_block}"
     )
     return [{"role": "system", "content": system_prompt_content}, {"role": "user", "content": user_prompt_content}]
@@ -445,8 +456,20 @@ def _create_single_chunk_prompt(chunk_text: str, full_text: str, topic: str) -> 
         f"Тема документа: \"{topic}\"\n\n"
         f"Полный текст документа:\n{full_text}\n\n"
         f"Анализируемый фрагмент: \"{chunk_text}\"\n\n"
-        f"Выбери одну или максимум две роли для этого фрагмента из списка:\n{roles_description_str}\n\n"
-        f"Ответь только названием роли (или двух ролей через \" / \"). Никаких дополнительных объяснений."
+        f"Выбери одну или максимум две РАЗНЫЕ роли для этого фрагмента из списка:\n{roles_description_str}\n\n"
+        f"ВАЖНЫЕ ПРАВИЛА:\n"
+        f"1. Ответь ТОЛЬКО названием роли (или двух РАЗНЫХ ролей через \" / \")\n"
+        f"2. НЕ дублируй одну и ту же роль\n"
+        f"3. НЕ добавляй никаких объяснений или комментариев\n"
+        f"4. Используй ТОЧНЫЕ названия ролей из списка\n\n"
+        f"Примеры правильных ответов:\n"
+        f"- раскрытие темы\n"
+        f"- метафора или аналогия / юмор или ирония или сарказм\n"
+        f"- шум\n\n"
+        f"Примеры НЕПРАВИЛЬНЫХ ответов:\n"
+        f"- юмор или ирония или сарказм / юмор или ирония или сарказм (дублирование)\n"
+        f"- Это раскрытие темы (лишние слова)\n"
+        f"- примерно раскрытие темы (неточное название)"
     )
     
     return [
@@ -466,6 +489,13 @@ def _parse_single_chunk_response(response_text: str) -> str:
     """
     response_text = response_text.strip()
     
+    # Предварительная очистка от паттернов повторения
+    # Например: "метафора / метафора / метафора" -> "метафора"
+    import re
+    # Паттерн для поиска повторяющихся фраз через слэш
+    pattern = r'([^/]+?)(?:\s*/\s*\1)+(?:\s*/|$)'
+    response_text = re.sub(pattern, r'\1 / ', response_text).strip(' /')
+    
     # Создаем set из допустимых меток в нижнем регистре
     valid_labels_lower = {label.lower() for label in API_LABELS}
     
@@ -482,6 +512,8 @@ def _parse_single_chunk_response(response_text: str) -> str:
     
     # Проверяем каждую метку на валидность
     valid_labels = []
+    seen_labels = set()  # Для отслеживания дубликатов
+    
     for label_candidate in potential_labels:
         label_lower = label_candidate.lower().strip()
         
@@ -489,15 +521,26 @@ def _parse_single_chunk_response(response_text: str) -> str:
         if label_lower in valid_labels_lower:
             # Находим оригинальную метку с правильным регистром
             original_label = next((api_label for api_label in API_LABELS if api_label.lower() == label_lower), label_candidate)
-            valid_labels.append(original_label)
+            # Добавляем только если еще не видели эту метку
+            if original_label not in seen_labels:
+                valid_labels.append(original_label)
+                seen_labels.add(original_label)
         else:
             # Ищем частичное совпадение
             for api_label in API_LABELS:
                 if label_lower in api_label.lower() or api_label.lower() in label_lower:
-                    valid_labels.append(api_label)
+                    # Добавляем только если еще не видели эту метку
+                    if api_label not in seen_labels:
+                        valid_labels.append(api_label)
+                        seen_labels.add(api_label)
                     break
     
     if valid_labels:
+        # Ограничиваем количество меток до 2 (как указано в документации)
+        if len(valid_labels) > 2:
+            logger.warning(f"[ChunkSemanticParser] Найдено {len(valid_labels)} меток, оставляем только первые 2: {valid_labels}")
+            valid_labels = valid_labels[:2]
+            
         result = " / ".join(valid_labels)
         logger.debug(f"[ChunkSemanticParser] Успешно распознано: '{result}'")
         return result
