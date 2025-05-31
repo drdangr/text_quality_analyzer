@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+import time
 
 from .semantic_function import analyze_batch_chunks_semantic
 from .semantic_function_realtime import SemanticRealtimeAnalyzer, RealtimeSessionConfig
@@ -134,39 +135,45 @@ class HybridSemanticAnalyzer:
         Returns:
             Результат анализа с информацией об использованном методе
         """
+        start_time = time.time()
+        
         # Определяем метод
         if force_method:
             use_realtime = force_method == APIMethod.REALTIME
         else:
             use_realtime = self.prefer_realtime and self.failure_tracker.should_use_realtime()
         
-        # Попытка через Realtime API
         if use_realtime:
+            logger.info(f"[Hybrid] 🚀 Чанк {chunk_id}: пробуем Realtime API")
             try:
-                # Убеждаемся, что сессия активна
-                if await self._ensure_realtime_session(topic):
-                    result = await self.realtime_analyzer.analyze_chunk(chunk_id, chunk_text)
-                    
-                    # Проверяем результат
-                    if result.get("semantic_function") and "error" not in result.get("semantic_function", ""):
-                        self.failure_tracker.record_success()
-                        result["api_method"] = APIMethod.REALTIME.value
-                        result["api_latency"] = result.get("processing_time", 0)
-                        logger.debug(f"Чанк {chunk_id} успешно обработан через Realtime API")
-                        return result
-                    else:
-                        raise Exception(f"Realtime API вернул ошибку: {result.get('semantic_error', 'Unknown')}")
-                        
-            except Exception as e:
-                logger.warning(f"Ошибка Realtime API для чанка {chunk_id}: {e}")
-                self.failure_tracker.record_failure()
+                # Пробуем Realtime API
+                if not self._realtime_session_active:
+                    await self._ensure_realtime_session(topic)
                 
-                # Если это критическая ошибка, делаем fallback
-                if self._should_fallback(e):
-                    logger.info(f"Переключаемся на REST API для чанка {chunk_id}")
+                if self.realtime_analyzer:
+                    result = await self.realtime_analyzer.analyze_chunk(
+                        chunk_id, chunk_text
+                    )
+                    self.failure_tracker.record_success()
+                    result["api_method"] = APIMethod.REALTIME.value
+                    result["api_latency"] = time.time() - start_time
+                    logger.info(f"[Hybrid] ✅ Чанк {chunk_id}: Realtime успешно за {result['api_latency']:.2f}с")
+                    return result
                 else:
-                    # Если ошибка не критическая, пробрасываем её
-                    raise
+                    raise Exception("Realtime analyzer not initialized")
+                
+            except Exception as e:
+                self.failure_tracker.record_failure()
+                logger.warning(f"[Hybrid] ⚠️ Чанк {chunk_id}: Realtime ошибка: {str(e)[:100]}, переключаемся на REST")
+                
+                # Проверяем, не пора ли отключить Realtime
+                if self.failure_tracker.realtime_failures >= 3:
+                    logger.warning(f"[Hybrid] ❌ Realtime API временно отключен после {self.failure_tracker.realtime_failures} ошибок")
+                    self._realtime_session_active = False
+                    if self.realtime_analyzer:
+                        await self.realtime_analyzer.close()
+        else:
+            logger.info(f"[Hybrid] 📡 Чанк {chunk_id}: используем REST API (Realtime {'недоступен' if not self.failure_tracker.should_use_realtime() else 'не предпочтителен'})")
         
         # Fallback на REST API
         try:
@@ -194,19 +201,19 @@ class HybridSemanticAnalyzer:
                     "semantic_method": metrics.get("semantic_method"),
                     "semantic_error": metrics.get("semantic_error"),
                     "api_method": APIMethod.REST.value,
-                    "api_latency": 0  # REST API не возвращает latency
+                    "api_latency": time.time() - start_time
                 }
             else:
                 raise Exception("REST API не вернул результат")
                 
         except Exception as e:
-            logger.error(f"Ошибка REST API для чанка {chunk_id}: {e}")
+            logger.error(f"[Hybrid] ❌ Чанк {chunk_id}: REST тоже не удался: {e}")
             return {
                 "chunk_id": chunk_id,
                 "semantic_function": None,
-                "semantic_error": f"Оба API недоступны: {str(e)}",
+                "semantic_error": f"Both APIs failed: {str(e)[:150]}",
                 "api_method": "failed",
-                "api_latency": 0
+                "api_latency": time.time() - start_time
             }
     
     async def analyze_batch(
@@ -228,6 +235,7 @@ class HybridSemanticAnalyzer:
         Returns:
             Список результатов анализа
         """
+        logger.info(f"[HybridBatch] 🎯 Начинаем анализ {len(chunks)} чанков. Adaptive={adaptive_batching}, MaxConcurrent={max_concurrent}")
         results = []
         
         if adaptive_batching and len(chunks) > 10 and self.failure_tracker.should_use_realtime():

@@ -10,6 +10,8 @@ from logging_config import setup_logging
 
 # --- Импорт сервисов и роутера --- 
 from api.routes import router as api_router
+from api.routes_hybrid import router as hybrid_router  # Новый гибридный роутер
+from api.routes_optimized import router as optimized_router  # Оптимизированный роутер
 from services.session_store import SessionStore
 from services.embedding_service import EmbeddingService, get_embedding_service
 from services.openai_service import OpenAIService, get_openai_service
@@ -165,6 +167,8 @@ app.dependency_overrides[get_openai_service] = get_openai_service_override
 
 # --- Подключение роутеров API --- 
 app.include_router(api_router, prefix="/api")
+app.include_router(hybrid_router)  # Гибридный роутер с Realtime API
+app.include_router(optimized_router)  # Оптимизированный роутер
 
 # --- Эндпоинт для проверки здоровья --- 
 @app.get("/health", tags=["System"])

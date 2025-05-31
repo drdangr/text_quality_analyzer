@@ -158,3 +158,24 @@ class BatchChunkLocalMetricsResponse(BaseModel):
     """Модель ответа для пакетного анализа локальных метрик."""
     results: List[ChunkLocalMetricsResponse]
     failed: List[str] = Field(default_factory=list, description="IDs чанков, для которых анализ не удался")
+
+# === Новые модели для оптимизированного семантического анализа ===
+
+class ChunkBoundary(BaseModel):
+    """Границы чанка в тексте"""
+    chunk_id: str = Field(..., description="Уникальный идентификатор чанка")
+    start: int = Field(..., ge=0, description="Начальная позиция чанка в тексте (включительно)")
+    end: int = Field(..., gt=0, description="Конечная позиция чанка в тексте (исключительно)")
+
+class OptimizedBatchSemanticRequest(BaseModel):
+    """Запрос на оптимизированный пакетный семантический анализ"""
+    full_text: str = Field(..., description="Полный текст документа")
+    chunk_boundaries: List[ChunkBoundary] = Field(..., description="Границы чанков для анализа")
+    topic: str = Field(..., description="Основная тема текста для контекста")
+
+class OptimizedSemanticResponse(BaseModel):
+    """Ответ оптимизированного семантического анализа"""
+    results: List[ChunkSemanticResponse] = Field(..., description="Результаты для каждого чанка")
+    method: str = Field(default="optimized", description="Использованный метод анализа")
+    requests_count: int = Field(default=1, description="Количество запросов к модели")
+    tokens_saved: Optional[int] = Field(None, description="Примерная экономия токенов")

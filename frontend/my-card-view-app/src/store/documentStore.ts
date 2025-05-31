@@ -200,6 +200,30 @@ export const useDocumentStore = create<AppState>()(
           loading: false 
         });
 
+        // Предупреждение для больших документов
+        if (chunks.length > 20) {
+          console.warn(`⚠️ Большой документ: ${chunks.length} чанков. Анализ может занять несколько минут.`);
+          
+          // Автоматически отключаем real-time для больших документов
+          if (chunks.length > 50 && get().ui.enableRealtimeSemantic) {
+            console.log('🚦 Автоматически отключаем real-time семантический анализ для большого документа');
+            set(state => ({
+              ui: {
+                ...state.ui,
+                enableRealtimeSemantic: false
+              }
+            }));
+          }
+        }
+
+        // Устанавливаем тип семантического обновления в GLOBAL для инициализации
+        set(state => ({
+          metricsQueue: {
+            ...state.metricsQueue,
+            semanticUpdateType: SemanticUpdateType.GLOBAL
+          }
+        }));
+
         // Запускаем ПОЛНЫЙ анализ для всех чанков (локальный + семантический)
         console.log('🎯 Запускаем ПОЛНЫЙ анализ для всех чанков после initializeDocument');
         chunks.forEach(chunk => {
@@ -685,7 +709,7 @@ export const useDocumentStore = create<AppState>()(
                   let getBatchChunkSemantic;
                   try {
                     const apiModule = await import('../api/index');
-                    getBatchChunkSemantic = apiModule.getBatchChunkSemantic;
+                    getBatchChunkSemantic = apiModule.getBatchChunkSemanticSmart;
                   } catch (importError) {
                     console.warn('Ошибка импорта семантических API:', importError);
                     get().finishSemanticProgress();

@@ -483,7 +483,8 @@ export async function getChunkSemantic(
     topic: topic
   };
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/chunk/metrics/semantic-single`, {
+  // Используем новый гибридный эндпоинт с параметром prefer_realtime=false
+  const response = await fetch(`${API_BASE_URL}/api/v1/hybrid/chunk/metrics/semantic?prefer_realtime=false`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -509,7 +510,8 @@ export async function getBatchChunkSemantic(
     topic: topic
   };
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/chunks/metrics/semantic-batch`, {
+  // Используем новый гибридный эндпоинт с параметром prefer_realtime=false
+  const response = await fetch(`${API_BASE_URL}/api/v1/hybrid/chunks/metrics/semantic-batch?prefer_realtime=false`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -521,4 +523,114 @@ export async function getBatchChunkSemantic(
   await handleResponseError(response);
   
   return response.json() as Promise<BatchChunkSemanticResponse>;
+}
+
+// --- ОПТИМИЗИРОВАННЫЙ API ДЛЯ СЕМАНТИЧЕСКОГО АНАЛИЗА ---
+
+// Интерфейс для границ чанка
+export interface ChunkBoundary {
+  chunk_id: string;
+  start: number;
+  end: number;
+}
+
+// Интерфейс для запроса оптимизированного пакетного семантического анализа
+export interface OptimizedBatchSemanticRequest {
+  full_text: string;
+  chunk_boundaries: ChunkBoundary[];
+  topic: string;
+}
+
+// Интерфейс для ответа оптимизированного семантического анализа
+export interface OptimizedSemanticResponse {
+  results: Array<ChunkSemanticResponse>;
+  method: string;
+  requests_count: number;
+  tokens_saved: number;
+}
+
+// Функция для оптимизированного пакетного семантического анализа
+export async function getBatchChunkSemanticOptimized(
+  chunks: Array<{ id: string; text: string }>,
+  fullText: string,
+  topic: string
+): Promise<BatchChunkSemanticResponse> {
+  // Вычисляем границы чанков на основе их позиции в полном тексте
+  const chunk_boundaries: ChunkBoundary[] = [];
+  let currentPos = 0;
+  
+  for (const chunk of chunks) {
+    const start = fullText.indexOf(chunk.text, currentPos);
+    if (start !== -1) {
+      const end = start + chunk.text.length;
+      chunk_boundaries.push({
+        chunk_id: chunk.id,
+        start: start,
+        end: end
+      });
+      currentPos = end;
+    } else {
+      // Если чанк не найден, логируем предупреждение
+      console.warn(`[API] Чанк ${chunk.id} не найден в полном тексте`);
+    }
+  }
+
+  const requestBody: OptimizedBatchSemanticRequest = {
+    full_text: fullText,
+    chunk_boundaries: chunk_boundaries,
+    topic: topic
+  };
+
+  try {
+    // Используем новый оптимизированный эндпоинт
+    const response = await fetch(`${API_BASE_URL}/api/v2/optimized/semantic/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    await handleResponseError(response);
+    
+    const optimizedResponse = await response.json() as OptimizedSemanticResponse;
+    
+    // Логируем статистику оптимизации
+    console.log(`[API] 🚀 Оптимизированный анализ: ${optimizedResponse.results.length} чанков, ` +
+                `${optimizedResponse.requests_count} запросов, ` +
+                `~${optimizedResponse.tokens_saved} токенов сэкономлено`);
+    
+    // Преобразуем ответ в формат BatchChunkSemanticResponse
+    const failed = optimizedResponse.results
+      .filter(r => r.metrics.semantic_error)
+      .map(r => r.chunk_id);
+    
+    return {
+      results: optimizedResponse.results,
+      failed: failed
+    };
+    
+  } catch (error) {
+    console.error('[API] Ошибка оптимизированного анализа, возврат к стандартному методу:', error);
+    // В случае ошибки возвращаемся к стандартному методу
+    return getBatchChunkSemantic(chunks, fullText, topic);
+  }
+}
+
+// Функция-переключатель для использования оптимизированного API когда возможно
+export async function getBatchChunkSemanticSmart(
+  chunks: Array<{ id: string; text: string }>,
+  fullText: string,
+  topic: string,
+  useOptimized: boolean = true
+): Promise<BatchChunkSemanticResponse> {
+  // Используем оптимизированный API для больших документов
+  if (useOptimized && chunks.length > 5) {
+    console.log(`[API] Используем оптимизированный API для ${chunks.length} чанков`);
+    return getBatchChunkSemanticOptimized(chunks, fullText, topic);
+  } else {
+    console.log(`[API] Используем стандартный API для ${chunks.length} чанков`);
+    return getBatchChunkSemantic(chunks, fullText, topic);
+  }
 } 
