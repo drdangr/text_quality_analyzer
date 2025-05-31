@@ -1,0 +1,20 @@
+{
+  "timestamp": "20250531_041236",
+  "topic": "Искусственный интеллект и технологии",
+  "total_chunks": 30,
+  "rest_api": {
+    "successful": 30,
+    "failed": 0,
+    "total_time": 5.065353631973267,
+    "avg_time_per_chunk": 0.1471448262532552,
+    "accuracy": 46.666666666666664
+  },
+  "realtime_api": {
+    "successful": 2,
+    "failed": 28,
+    "total_time": 2.0440261363983154,
+    "avg_time_per_chunk": 0.375499963760376,
+    "accuracy": 0.0
+  },
+  "speedup": 0.39186375620306363
+}

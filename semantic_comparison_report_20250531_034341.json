@@ -1,0 +1,148 @@
+{
+  "summary": {
+    "timestamp": "2025-05-31T03:43:41.628789",
+    "total_chunks": 5,
+    "rest_api": {
+      "total_time": 4.3162171840667725,
+      "api_calls": 5,
+      "success_rate": 100.0,
+      "errors_count": 0
+    },
+    "realtime_api": {
+      "total_time": 11.368106603622437,
+      "api_calls": 6,
+      "success_rate": 0.0,
+      "errors_count": 5
+    },
+    "performance": {
+      "time_difference": -7.051889419555664,
+      "time_improvement_percent": -163.38124609640982,
+      "api_calls_saved": -1
+    },
+    "consistency": {
+      "match_rate": 0.0,
+      "differences_count": 5,
+      "sample_differences": [
+        {
+          "chunk_id": "test_chunk_1",
+          "rest": "раскрытие темы",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_2",
+          "rest": "раскрытие темы",
+          "realtime": "error_timeout"
+        },
+        {
+          "chunk_id": "test_chunk_3",
+          "rest": "раскрытие темы",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_4",
+          "rest": "пояснение на примере",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_5",
+          "rest": "пояснение на примере",
+          "realtime": "error_api_call"
+        }
+      ]
+    }
+  },
+  "rest_api_details": {
+    "method": "REST",
+    "total_time": 4.3162171840667725,
+    "api_calls": 5,
+    "success_rate": 100.0,
+    "errors": [],
+    "sample_results": [
+      {
+        "chunk_id": "test_chunk_1",
+        "metrics": {
+          "semantic_function": "раскрытие темы",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_2",
+        "metrics": {
+          "semantic_function": "раскрытие темы",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_3",
+        "metrics": {
+          "semantic_function": "раскрытие темы",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_4",
+        "metrics": {
+          "semantic_function": "пояснение на примере",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_5",
+        "metrics": {
+          "semantic_function": "пояснение на примере",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      }
+    ]
+  },
+  "realtime_api_details": {
+    "method": "Realtime",
+    "total_time": 11.368106603622437,
+    "api_calls": 6,
+    "success_rate": 0.0,
+    "errors": [
+      "Chunk test_chunk_1: Invalid value: 'session.create'. Supported values are: 'session.update', 'transcription_session.update', 'input_audio_buffer.append', 'input_audio_buffer.commit', 'input_audio_buffer.clear', 'conversation.item.create', 'conversation.item.truncate', 'conversation.item.delete', 'conversation.item.retrieve', 'response.create', and 'response.cancel'.",
+      "Chunk test_chunk_2: Response timeout",
+      "Chunk test_chunk_3: received 1000 (OK); then sent 1000 (OK)",
+      "Chunk test_chunk_4: received 1000 (OK); then sent 1000 (OK)",
+      "Chunk test_chunk_5: received 1000 (OK); then sent 1000 (OK)"
+    ],
+    "sample_results": [
+      {
+        "chunk_id": "test_chunk_1",
+        "semantic_function": "error_api_call",
+        "semantic_method": "realtime_api",
+        "semantic_error": "Invalid value: 'session.create'. Supported values are: 'session.update', 'transcription_session.update', 'input_audio_buffer.append', 'input_audio_buffer.commit', 'input_audio_buffer.clear', 'conversation.item.create', 'conversation.item.truncate', 'conversation.item.delete', 'conversation.item.retrieve', 'response.create', and 'response.cancel'."
+      },
+      {
+        "chunk_id": "test_chunk_2",
+        "semantic_function": "error_timeout",
+        "semantic_method": "realtime_api",
+        "semantic_error": "Response timeout"
+      },
+      {
+        "chunk_id": "test_chunk_3",
+        "semantic_function": "error_api_call",
+        "semantic_method": "realtime_api",
+        "semantic_error": "received 1000 (OK); then sent 1000 (OK)"
+      },
+      {
+        "chunk_id": "test_chunk_4",
+        "semantic_function": "error_api_call",
+        "semantic_method": "realtime_api",
+        "semantic_error": "received 1000 (OK); then sent 1000 (OK)"
+      },
+      {
+        "chunk_id": "test_chunk_5",
+        "semantic_function": "error_api_call",
+        "semantic_method": "realtime_api",
+        "semantic_error": "received 1000 (OK); then sent 1000 (OK)"
+      }
+    ]
+  }
+}

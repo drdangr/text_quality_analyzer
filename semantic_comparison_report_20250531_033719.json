@@ -1,0 +1,204 @@
+{
+  "summary": {
+    "timestamp": "2025-05-31T03:37:19.413489",
+    "total_chunks": 20,
+    "rest_api": {
+      "total_time": 18.896732807159424,
+      "api_calls": 20,
+      "success_rate": 100.0,
+      "errors_count": 0
+    },
+    "realtime_api": {
+      "total_time": 0.01789712905883789,
+      "api_calls": 0,
+      "success_rate": 0.0,
+      "errors_count": 1
+    },
+    "performance": {
+      "time_difference": 18.878835678100586,
+      "time_improvement_percent": 99.90528982315897,
+      "api_calls_saved": 20
+    },
+    "consistency": {
+      "match_rate": 0.0,
+      "differences_count": 20,
+      "sample_differences": [
+        {
+          "chunk_id": "test_chunk_1",
+          "rest": "шум",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_2",
+          "rest": "шум",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_3",
+          "rest": "шум",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_4",
+          "rest": "пояснение на примере",
+          "realtime": "error_api_call"
+        },
+        {
+          "chunk_id": "test_chunk_5",
+          "rest": "раскрытие темы / пояснение на примере",
+          "realtime": "error_api_call"
+        }
+      ]
+    }
+  },
+  "rest_api_details": {
+    "method": "REST",
+    "total_time": 18.896732807159424,
+    "api_calls": 20,
+    "success_rate": 100.0,
+    "errors": [],
+    "sample_results": [
+      {
+        "chunk_id": "test_chunk_1",
+        "metrics": {
+          "semantic_function": "шум",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_2",
+        "metrics": {
+          "semantic_function": "шум",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_3",
+        "metrics": {
+          "semantic_function": "шум",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_4",
+        "metrics": {
+          "semantic_function": "пояснение на примере",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_5",
+        "metrics": {
+          "semantic_function": "раскрытие темы / пояснение на примере",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_6",
+        "metrics": {
+          "semantic_function": "метафора или аналогия",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_7",
+        "metrics": {
+          "semantic_function": "метафора или аналогия / раскрытие темы",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_8",
+        "metrics": {
+          "semantic_function": "юмор или ирония или сарказм",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_9",
+        "metrics": {
+          "semantic_function": "юмор или ирония или сарказм / противопоставление или контраст",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      },
+      {
+        "chunk_id": "test_chunk_10",
+        "metrics": {
+          "semantic_function": "шум",
+          "semantic_method": "api_single",
+          "semantic_error": null
+        }
+      }
+    ]
+  },
+  "realtime_api_details": {
+    "method": "Realtime",
+    "total_time": 0.01789712905883789,
+    "api_calls": 0,
+    "success_rate": 0.0,
+    "errors": [
+      "Ошибка инициализации Realtime API: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+    ],
+    "sample_results": [
+      {
+        "chunk_id": "test_chunk_1",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_2",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_3",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_4",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_5",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_6",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_7",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_8",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_9",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      },
+      {
+        "chunk_id": "test_chunk_10",
+        "semantic_function": "error_api_call",
+        "semantic_error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'"
+      }
+    ]
+  }
+}
